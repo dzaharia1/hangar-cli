@@ -6,6 +6,30 @@ BOLD_RED='\033[1;31m'
 BOLD_GREEN='\033[1;32m'
 END_COLOR='\033[0m'
 
+# Parse CLI arguments
+APP_NAME=""
+APP_ID=""
+URL_DOMAIN=""
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -n|--name) APP_NAME="$2"; shift ;;
+        -id|--id) APP_ID="$2"; shift ;;
+        -urldomain|--url-domain|--domain) URL_DOMAIN="$2"; shift ;;
+        -h|--help)
+            echo "Usage: ./setup-new-app.sh [options]"
+            echo "Options:"
+            echo "  -n, --name NAME          App Name (Title Case)"
+            echo "  -id, --id ID             App ID (alphanumeric with hyphens)"
+            echo "  -urldomain, --domain DOM  Custom domain(s) (or prefix for default domains)"
+            echo "  -h, --help               Show this help message"
+            exit 0
+            ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
+
 # Source deploy secrets
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_SECRETS_FILE="$SCRIPT_DIR/.deploy-secrets"
@@ -47,16 +71,25 @@ if [ -z "$GCLOUD_ACCOUNT" ]; then
     exit 1
 fi
 
-# Prompts
-read -p "App Name (Title Case): " APP_NAME
 generate_app_id() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '-'
 }
-DEFAULT_APP_ID=$(generate_app_id "$APP_NAME")
 
-# Local APP_ID (used for folders, domains, github repos)
-read -p "App ID (Default: ${DEFAULT_APP_ID}): " APP_ID
-APP_ID=${APP_ID:-$DEFAULT_APP_ID}
+# Prompts
+if [ -z "$APP_NAME" ]; then
+    read -p "App Name (Title Case): " APP_NAME
+fi
+
+if [ -z "$APP_ID" ]; then
+    DEFAULT_APP_ID=$(generate_app_id "$APP_NAME")
+    read -p "App ID (Default: ${DEFAULT_APP_ID}): " APP_ID
+    APP_ID=${APP_ID:-$DEFAULT_APP_ID}
+fi
+
+clean_app_id() {
+    echo "$1" | tr -d '\r'
+}
+APP_ID=$(clean_app_id "$APP_ID")
 
 # Firebase Project ID (guaranteed globally unique with random suffix)
 RANDOM_NUM=$(jot -r 1 10000 99999 2>/dev/null || shuf -i 10000-99999 -n 1 2>/dev/null || echo $((10000 + RANDOM % 90000)))
@@ -72,17 +105,28 @@ if [ -f "$REGISTRY_FILE" ]; then
     fi
 fi
 
-# Domain mapping (uses clean local app ID)
-DZ_DOMAIN_NAME="$APP_ID.danzaharia.com"
-ADMA_DOMAIN_NAME="$APP_ID.adanmade.app"
-DOMAIN_NAME="$DZ_DOMAIN_NAME, $ADMA_DOMAIN_NAME"
+# Domain mapping (uses clean local app ID or custom domain input)
+if [ -n "$URL_DOMAIN" ]; then
+    if [[ "$URL_DOMAIN" == *.* ]]; then
+        DOMAIN_NAME="$URL_DOMAIN"
+    else
+        DOMAIN_NAME="$URL_DOMAIN.danzaharia.com, $URL_DOMAIN.adanmade.app"
+    fi
+else
+    DOMAIN_NAME="$APP_ID.danzaharia.com, $APP_ID.adanmade.app"
+fi
+
+# Split comma-separated DOMAIN_NAME into an array for easier looping later
+IFS=',' read -r -a DOMAINS_ARRAY <<< "$(echo "$DOMAIN_NAME" | tr -d ' ')"
 
 echo -e "\nSummary:"
 echo "App Name:            $APP_NAME"
 echo "App ID:              $APP_ID"
 echo "Firebase Project ID: $FIREBASE_PROJECT_ID"
-echo "Domains:             https://$DZ_DOMAIN_NAME"
-echo "                     https://$ADMA_DOMAIN_NAME"
+echo "Domains:             "
+for domain in "${DOMAINS_ARRAY[@]}"; do
+    echo "                     https://$domain"
+done
 echo "Local Root:          $LOCAL_PROJECTS_DIR/$APP_ID"
 echo "GitHub Repo:         github.com/$GITHUB_USER/$APP_ID"
 echo " "
@@ -389,67 +433,50 @@ sleep 10
 # Register custom domains
 echo "Registering custom domains in Firebase Hosting..."
 ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
-if [ -n "$ACCESS_TOKEN" ]; then
-    echo "Registering $DZ_DOMAIN_NAME..."
-    response_dz=$(curl -s -w "\n%{http_code}" -X POST "https://firebasehosting.googleapis.com/v1beta1/projects/$FIREBASE_PROJECT_ID/sites/$FIREBASE_PROJECT_ID/customDomains?customDomainId=$DZ_DOMAIN_NAME" \
-        -H "Authorization: Bearer $ACCESS_TOKEN" \
-        -H "X-Goog-User-Project: $FIREBASE_PROJECT_ID" \
-        -H "Content-Type: application/json" \
-        -d "{}")
-    code_dz=$(echo "$response_dz" | tail -n 1)
-    body_dz=$(echo "$response_dz" | head -n -1)
-    if [ "$code_dz" -ne 200 ] && [ "$code_dz" -ne 201 ]; then
-        echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to register $DZ_DOMAIN_NAME (HTTP $code_dz)"
-        echo "Details: $body_dz"
-    else
-        echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Registered $DZ_DOMAIN_NAME"
+for domain in "${DOMAINS_ARRAY[@]}"; do
+    if [ -n "$ACCESS_TOKEN" ]; then
+        echo "Registering $domain..."
+        response=$(curl -s -w "\n%{http_code}" -X POST "https://firebasehosting.googleapis.com/v1beta1/projects/$FIREBASE_PROJECT_ID/sites/$FIREBASE_PROJECT_ID/customDomains?customDomainId=$domain" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "X-Goog-User-Project: $FIREBASE_PROJECT_ID" \
+            -H "Content-Type: application/json" \
+            -d "{}")
+        code=$(echo "$response" | tail -n 1)
+        body=$(echo "$response" | head -n -1)
+        if [ "$code" -ne 200 ] && [ "$code" -ne 201 ]; then
+            echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to register $domain (HTTP $code)"
+            echo "Details: $body"
+        else
+            echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Registered $domain"
+        fi
     fi
-        
-    echo "Registering $ADMA_DOMAIN_NAME..."
-    response_adma=$(curl -s -w "\n%{http_code}" -X POST "https://firebasehosting.googleapis.com/v1beta1/projects/$FIREBASE_PROJECT_ID/sites/$FIREBASE_PROJECT_ID/customDomains?customDomainId=$ADMA_DOMAIN_NAME" \
-        -H "Authorization: Bearer $ACCESS_TOKEN" \
-        -H "X-Goog-User-Project: $FIREBASE_PROJECT_ID" \
-        -H "Content-Type: application/json" \
-        -d "{}")
-    code_adma=$(echo "$response_adma" | tail -n 1)
-    body_adma=$(echo "$response_adma" | head -n -1)
-    if [ "$code_adma" -ne 200 ] && [ "$code_adma" -ne 201 ]; then
-        echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to register $ADMA_DOMAIN_NAME (HTTP $code_adma)"
-        echo "Details: $body_adma"
-    else
-        echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Registered $ADMA_DOMAIN_NAME"
-    fi
-fi
 
-# Cloudflare CNAME record setup for both domains
-if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-    if [ -n "$DZ_ZONE_ID" ]; then
-        echo "Creating Cloudflare CNAME record pointing $DZ_DOMAIN_NAME to $FIREBASE_PROJECT_ID.web.app..."
-        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$DZ_ZONE_ID/dns_records" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data "{
-              \"type\": \"CNAME\",
-              \"name\": \"$DZ_DOMAIN_NAME\",
-              \"content\": \"$FIREBASE_PROJECT_ID.web.app\",
-              \"ttl\": 1,
-              \"proxied\": false
-            }" > /dev/null
+    # Cloudflare CNAME record setup
+    if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+        ZONE_ID=""
+        if [[ "$domain" == *.danzaharia.com ]] && [ -n "$DZ_ZONE_ID" ]; then
+            ZONE_ID="$DZ_ZONE_ID"
+        elif [[ "$domain" == *.adanmade.app ]] && [ -n "$ADMA_ZONE_ID" ]; then
+            ZONE_ID="$ADMA_ZONE_ID"
+        fi
+
+        if [ -n "$ZONE_ID" ]; then
+            echo "Creating Cloudflare CNAME record pointing $domain to $FIREBASE_PROJECT_ID.web.app..."
+            curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "{
+                  \"type\": \"CNAME\",
+                  \"name\": \"$domain\",
+                  \"content\": \"$FIREBASE_PROJECT_ID.web.app\",
+                  \"ttl\": 1,
+                  \"proxied\": false
+                }" > /dev/null
+        else
+            echo "Cloudflare automatic DNS setup skipped for $domain (unrecognized zone or zone ID not set)"
+        fi
     fi
-    if [ -n "$ADMA_ZONE_ID" ]; then
-        echo "Creating Cloudflare CNAME record pointing $ADMA_DOMAIN_NAME to $FIREBASE_PROJECT_ID.web.app..."
-        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ADMA_ZONE_ID/dns_records" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data "{
-              \"type\": \"CNAME\",
-              \"name\": \"$ADMA_DOMAIN_NAME\",
-              \"content\": \"$FIREBASE_PROJECT_ID.web.app\",
-              \"ttl\": 1,
-              \"proxied\": false
-            }" > /dev/null
-    fi
-fi
+done
 
 # --- CONFIGURE SERVICE ACCOUNTS ---
 echo "Creating Google Cloud deployer Service Account..."
@@ -589,6 +616,9 @@ echo -e "--------------- ${BOLD}DONE${END_COLOR} ---------------"
 echo -e "------------------------------------ \n"
 echo -e "${BOLD}*** $APP_ID is now fully set up! ***${END_COLOR}\n"
 echo -e "* Raw Firebase URL:  ${BOLD}https://$FIREBASE_PROJECT_ID.web.app${END_COLOR}"
-echo -e "* Custom Domain:     ${BOLD}https://$DOMAIN_NAME${END_COLOR}"
+echo -e "* Custom Domains:    "
+for domain in "${DOMAINS_ARRAY[@]}"; do
+    echo -e "                     ${BOLD}https://$domain${END_COLOR}"
+done
 echo -e "* Firebase Project:  ${BOLD}https://console.firebase.google.com/project/$FIREBASE_PROJECT_ID${END_COLOR}"
 echo -e "* GitHub Repo:       ${BOLD}https://github.com/$GITHUB_USER/$APP_ID${END_COLOR}"

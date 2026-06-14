@@ -28,6 +28,32 @@ Launch the interactive TUI to manage all instances:
 ./host-manager.sh
 ```
 
+Alternatively, run `host-manager.sh` directly using arguments and parameters (CLI mode):
+```bash
+./host-manager.sh [command] [options]
+```
+
+#### CLI Mode Commands & Options
+* **`create-app`**: Scaffold and deploy a new application.
+  * `-n, --name NAME` (Required): App Name (Title Case)
+  * `-id, --id ID` (Optional): App ID (lowercase-with-hyphens)
+  * `-urldomain, --domain DOM` (Optional): Custom domain(s), comma-separated
+* **`remove-app`**: Decommission and remove an active application.
+  * `-id, --id ID` (Required): App ID of the application to remove
+* **`restore-app`**: Redeploy and restore an archived application from GitHub.
+  * `-id, --id ID` (Required): App ID of the application to restore
+* **`list-apps`**: List all registered applications.
+  * `--status active|removed|all` (Optional): Filter applications by status (default: `active`)
+  * `--json` (Optional): Output the list of apps in raw JSON format
+
+#### Help
+For help on any command:
+```bash
+./host-manager.sh --help
+./host-manager.sh create-app --help
+```
+
+
 ### 2. Setting Up a New Vite App
 The `setup-new-vite-app.sh` script:
 - Creates the application directory structure.
