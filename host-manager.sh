@@ -698,29 +698,33 @@ EOF
     if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
         if [ -n "$DZ_ZONE_ID" ]; then
             echo "Creating Cloudflare CNAME record for $app_id.danzaharia.com..."
-            curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$DZ_ZONE_ID/dns_records" \
+            response_dz=$(curl -s -w "\n%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/$DZ_ZONE_ID/dns_records" \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "{
-                  \"type\": \"CNAME\",
-                  \"name\": \"$app_id.danzaharia.com\",
-                  \"content\": \"$firebase_project_id.web.app\",
-                  \"ttl\": 1,
-                  \"proxied\": false
-                }" > /dev/null
+                --data "{\"type\":\"CNAME\",\"name\":\"$app_id.danzaharia.com\",\"content\":\"$firebase_project_id.web.app\",\"ttl\":1,\"proxied\":false}")
+            code_dz=$(echo "$response_dz" | tail -n 1)
+            body_dz=$(echo "$response_dz" | head -n -1)
+            if [ "$code_dz" -ne 200 ] && [ "$code_dz" -ne 201 ]; then
+                echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Cloudflare CNAME record for $app_id.danzaharia.com (HTTP $code_dz)"
+                echo "Details: $body_dz"
+            else
+                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Cloudflare DNS record (DNS-only) for $app_id.danzaharia.com"
+            fi
         fi
         if [ -n "$ADMA_ZONE_ID" ]; then
             echo "Creating Cloudflare CNAME record for $app_id.adanmade.app..."
-            curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ADMA_ZONE_ID/dns_records" \
+            response_adma=$(curl -s -w "\n%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/$ADMA_ZONE_ID/dns_records" \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "{
-                  \"type\": \"CNAME\",
-                  \"name\": \"$app_id.adanmade.app\",
-                  \"content\": \"$firebase_project_id.web.app\",
-                  \"ttl\": 1,
-                  \"proxied\": false
-                }" > /dev/null
+                --data "{\"type\":\"CNAME\",\"name\":\"$app_id.adanmade.app\",\"content\":\"$firebase_project_id.web.app\",\"ttl\":1,\"proxied\":false}")
+            code_adma=$(echo "$response_adma" | tail -n 1)
+            body_adma=$(echo "$response_adma" | head -n -1)
+            if [ "$code_adma" -ne 200 ] && [ "$code_adma" -ne 201 ]; then
+                echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Cloudflare CNAME record for $app_id.adanmade.app (HTTP $code_adma)"
+                echo "Details: $body_adma"
+            else
+                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Cloudflare DNS record (DNS-only) for $app_id.adanmade.app"
+            fi
         fi
     fi
     

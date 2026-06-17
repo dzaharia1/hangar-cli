@@ -454,24 +454,26 @@ for domain in "${DOMAINS_ARRAY[@]}"; do
     # Cloudflare CNAME record setup
     if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
         ZONE_ID=""
-        if [[ "$domain" == *.danzaharia.com ]] && [ -n "$DZ_ZONE_ID" ]; then
+        if [[ ( "$domain" == *.danzaharia.com || "$domain" == "danzaharia.com" ) && -n "$DZ_ZONE_ID" ]]; then
             ZONE_ID="$DZ_ZONE_ID"
-        elif [[ "$domain" == *.adanmade.app ]] && [ -n "$ADMA_ZONE_ID" ]; then
+        elif [[ ( "$domain" == *.adanmade.app || "$domain" == "adanmade.app" ) && -n "$ADMA_ZONE_ID" ]]; then
             ZONE_ID="$ADMA_ZONE_ID"
         fi
 
         if [ -n "$ZONE_ID" ]; then
             echo "Creating Cloudflare CNAME record pointing $domain to $FIREBASE_PROJECT_ID.web.app..."
-            curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+            cf_response=$(curl -s -w "\n%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "{
-                  \"type\": \"CNAME\",
-                  \"name\": \"$domain\",
-                  \"content\": \"$FIREBASE_PROJECT_ID.web.app\",
-                  \"ttl\": 1,
-                  \"proxied\": false
-                }" > /dev/null
+                --data "{\"type\":\"CNAME\",\"name\":\"$domain\",\"content\":\"$FIREBASE_PROJECT_ID.web.app\",\"ttl\":1,\"proxied\":false}")
+            cf_code=$(echo "$cf_response" | tail -n 1)
+            cf_body=$(echo "$cf_response" | head -n -1)
+            if [ "$cf_code" -ne 200 ] && [ "$cf_code" -ne 201 ]; then
+                echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Cloudflare DNS record for $domain (HTTP $cf_code)"
+                echo "Details: $cf_body"
+            else
+                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Cloudflare DNS record (DNS-only) for $domain"
+            fi
         else
             echo "Cloudflare automatic DNS setup skipped for $domain (unrecognized zone or zone ID not set)"
         fi
