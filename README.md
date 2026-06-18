@@ -2,20 +2,13 @@
 
 ## Setup
 
-### 1. Configuration
-Copy the `.settings.example` template to `.settings` and populate it with your environment variables:
+Simply run the host manager script. If no `.settings` configuration is found, an interactive setup stepper will guide you through entering your configuration keys, authenticating your GitHub CLI (`gh`), and initializing the `apps-registry` repository:
 
 ```bash
-cp .settings.example .settings
+./host-manager.sh
 ```
 
-Open `.settings` in your editor and configure:
-- `LOCAL_PROJECTS_DIR`: Path where your local projects are scaffolded.
-- `BILLING_ACCOUNT_ID`: Google Cloud/Firebase billing account ID.
-- `CLOUDFLARE_ZONES`: Bash array mapping your domains to their Cloudflare Zone IDs (e.g., `"domain:zone_id"`).
-- `CLOUDFLARE_API_TOKEN`: Cloudflare API token with DNS edit permissions.
-
-### 2. Shell Alias (Optional)
+### Shell Alias (Optional)
 To easily run the scripts from anywhere, you can add an alias to your shell profile (e.g., `~/.zshrc` or `~/.bashrc`):
 
 ```bash
