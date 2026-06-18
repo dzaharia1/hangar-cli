@@ -10,18 +10,21 @@ END_COLOR='\033[0m'
 APP_NAME=""
 APP_ID=""
 URL_DOMAIN=""
+FIREBASE_PROJECT_ID=""
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -n|--name) APP_NAME="$2"; shift ;;
         -id|--id) APP_ID="$2"; shift ;;
         -urldomain|--url-domain|--domain) URL_DOMAIN="$2"; shift ;;
+        -fid|--firebase-id) FIREBASE_PROJECT_ID="$2"; shift ;;
         -h|--help)
             echo "Usage: ./setup-new-app.sh [options]"
             echo "Options:"
             echo "  -n, --name NAME          App Name (Title Case)"
             echo "  -id, --id ID             App ID (alphanumeric with hyphens)"
             echo "  -urldomain, --domain DOM  Custom domain(s) (or prefix for default domains)"
+            echo "  -fid, --firebase-id ID    Firebase Project ID (default: <app-id>-<random>)"
             echo "  -h, --help               Show this help message"
             exit 0
             ;;
@@ -92,8 +95,12 @@ clean_app_id() {
 APP_ID=$(clean_app_id "$APP_ID")
 
 # Firebase Project ID (guaranteed globally unique with random suffix)
-RANDOM_NUM=$(jot -r 1 10000 99999 2>/dev/null || shuf -i 10000-99999 -n 1 2>/dev/null || echo $((10000 + RANDOM % 90000)))
-FIREBASE_PROJECT_ID="$APP_ID-$RANDOM_NUM"
+# Honors a caller-provided --firebase-id; otherwise generates one.
+if [ -z "$FIREBASE_PROJECT_ID" ]; then
+    RANDOM_NUM=$(jot -r 1 10000 99999 2>/dev/null || shuf -i 10000-99999 -n 1 2>/dev/null || echo $((10000 + RANDOM % 90000)))
+    FIREBASE_PROJECT_ID="$APP_ID-$RANDOM_NUM"
+fi
+FIREBASE_PROJECT_ID=$(echo "$FIREBASE_PROJECT_ID" | tr -d '\r')
 
 # Check if app already exists in registry
 REGISTRY_FILE="$SCRIPT_DIR/apps-registry/apps-registry.json"
@@ -594,14 +601,19 @@ rm -f "$ROOT_DIR/firebase-key.json"
 
 # --- REGISTRY LOGGING ---
 echo "Logging metadata to synchronized registry..."
+# Build a JSON array of the (cleaned) domains for the richer schema.
+DOMAINS_JSON=$(printf '%s\n' "${DOMAINS_ARRAY[@]}" | jq -R . | jq -s .)
+
 NEW_ENTRY=$(jq -n \
   --arg id "$APP_ID" \
   --arg name "$APP_NAME" \
   --arg domain "$DOMAIN_NAME" \
+  --argjson domains "$DOMAINS_JSON" \
+  --arg local_root "$ROOT_DIR" \
   --arg f_pid "$FIREBASE_PROJECT_ID" \
   --arg gh_repo "github.com/$GITHUB_USER/$APP_ID" \
   --arg date "$(date)" \
-  '{id: $id, name: $name, domain: $domain, firebase_project_id: $f_pid, github_repo: $gh_repo, status: "active", created_at: $date}')
+  '{id: $id, name: $name, domain: $domain, domains: $domains, local_root: $local_root, firebase_project_id: $f_pid, github_repo: $gh_repo, status: "active", created_at: $date}')
 
 # Load registry, add entry, write back
 cd "$SCRIPT_DIR/apps-registry"
