@@ -1,0 +1,19 @@
+# Global configuration and settings for setup scripts
+# Copy this file to .settings and fill in the real values.
+# Do NOT commit the active .settings file to git.
+
+# Local directory where projects are scaffolded and stored
+LOCAL_PROJECTS_DIR="$HOME/Projects"
+
+# Google Cloud / Firebase Billing Account ID (used to link new projects to billing)
+BILLING_ACCOUNT_ID="your-billing-account-id"
+
+# Cloudflare Zone mappings (format: "domain:zone_id")
+# This format is fully compatible with Bash 3.x (macOS default bash)
+CLOUDFLARE_ZONES=(
+  "danzaharia.com:your-danzaharia-zone-id"
+  "adanmade.app:your-adanmade-zone-id"
+)
+
+# Cloudflare API token with Edit DNS zone permissions
+CLOUDFLARE_API_TOKEN="your-cloudflare-api-token"

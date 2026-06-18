@@ -1,3 +1,4 @@
+.settings
 .deploy-secrets
 apps-registry/
 .DS_Store

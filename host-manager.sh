@@ -97,18 +97,18 @@ if [ "$1" = "list-apps" ] && { [ "$2" = "-h" ] || [ "$2" = "--help" ]; }; then
     exit 0
 fi
 
-# Source deploy secrets
+# Source settings
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_SECRETS_FILE="$SCRIPT_DIR/.deploy-secrets"
-if [ -f "$DEPLOY_SECRETS_FILE" ]; then
-    source "$DEPLOY_SECRETS_FILE"
+SETTINGS_FILE="$SCRIPT_DIR/.settings"
+if [ -f "$SETTINGS_FILE" ]; then
+    source "$SETTINGS_FILE"
 else
-    echo "Cannot find deploy secrets at $DEPLOY_SECRETS_FILE"
+    echo "Cannot find settings at $SETTINGS_FILE"
     exit 1
 fi
 
-if [ -z "$LOCAL_PROJECTS_DIR" ] || [ -z "$BILLING_ACCOUNT_ID" ]; then
-    echo "LOCAL_PROJECTS_DIR or BILLING_ACCOUNT_ID not set in .deploy-secrets"
+if [ -z "$LOCAL_PROJECTS_DIR" ] || [ -z "$BILLING_ACCOUNT_ID" ] || [ ${#CLOUDFLARE_ZONES[@]} -eq 0 ]; then
+    echo "LOCAL_PROJECTS_DIR, BILLING_ACCOUNT_ID, or CLOUDFLARE_ZONES not set properly in .settings"
     exit 1
 fi
 
@@ -663,69 +663,49 @@ EOF
     echo "Linking custom domains in Firebase Hosting..."
     ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
     if [ -n "$ACCESS_TOKEN" ]; then
-        echo "Registering $app_id.danzaharia.com..."
-        response_dz=$(curl -s -w "\n%{http_code}" -X POST "https://firebasehosting.googleapis.com/v1beta1/projects/$firebase_project_id/sites/$firebase_project_id/customDomains?customDomainId=$app_id.danzaharia.com" \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            -H "X-Goog-User-Project: $firebase_project_id" \
-            -H "Content-Type: application/json" \
-            -d "{}")
-        code_dz=$(echo "$response_dz" | tail -n 1)
-        body_dz=$(echo "$response_dz" | head -n -1)
-        if [ "$code_dz" -ne 200 ] && [ "$code_dz" -ne 201 ]; then
-            echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to register $app_id.danzaharia.com (HTTP $code_dz)"
-            echo "Details: $body_dz"
-        else
-            echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Registered $app_id.danzaharia.com"
-        fi
-            
-        echo "Registering $app_id.adanmade.app..."
-        response_adma=$(curl -s -w "\n%{http_code}" -X POST "https://firebasehosting.googleapis.com/v1beta1/projects/$firebase_project_id/sites/$firebase_project_id/customDomains?customDomainId=$app_id.adanmade.app" \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            -H "X-Goog-User-Project: $firebase_project_id" \
-            -H "Content-Type: application/json" \
-            -d "{}")
-        code_adma=$(echo "$response_adma" | tail -n 1)
-        body_adma=$(echo "$response_adma" | head -n -1)
-        if [ "$code_adma" -ne 200 ] && [ "$code_adma" -ne 201 ]; then
-            echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to register $app_id.adanmade.app (HTTP $code_adma)"
-            echo "Details: $body_adma"
-        else
-            echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Registered $app_id.adanmade.app"
-        fi
+        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+            base_domain="${mapping%%:*}"
+            target_domain="$app_id.$base_domain"
+            echo "Registering $target_domain..."
+            response=$(curl -s -w "\n%{http_code}" -X POST "https://firebasehosting.googleapis.com/v1beta1/projects/$firebase_project_id/sites/$firebase_project_id/customDomains?customDomainId=$target_domain" \
+                -H "Authorization: Bearer $ACCESS_TOKEN" \
+                -H "X-Goog-User-Project: $firebase_project_id" \
+                -H "Content-Type: application/json" \
+                -d "{}")
+            code=$(echo "$response" | tail -n 1)
+            body=$(echo "$response" | head -n -1)
+            if [ "$code" -ne 200 ] && [ "$code" -ne 201 ]; then
+                echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to register $target_domain (HTTP $code)"
+                echo "Details: $body"
+            else
+                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Registered $target_domain"
+            fi
+        done
     fi
     
-    # 6. Re-configure Cloudflare records for both domains
+    # 6. Re-configure Cloudflare records for domains
     if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-        if [ -n "$DZ_ZONE_ID" ]; then
-            echo "Creating Cloudflare CNAME record for $app_id.danzaharia.com..."
-            response_dz=$(curl -s -w "\n%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/$DZ_ZONE_ID/dns_records" \
-                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                -H "Content-Type: application/json" \
-                --data "{\"type\":\"CNAME\",\"name\":\"$app_id.danzaharia.com\",\"content\":\"$firebase_project_id.web.app\",\"ttl\":1,\"proxied\":false}")
-            code_dz=$(echo "$response_dz" | tail -n 1)
-            body_dz=$(echo "$response_dz" | head -n -1)
-            if [ "$code_dz" -ne 200 ] && [ "$code_dz" -ne 201 ]; then
-                echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Cloudflare CNAME record for $app_id.danzaharia.com (HTTP $code_dz)"
-                echo "Details: $body_dz"
-            else
-                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Cloudflare DNS record (DNS-only) for $app_id.danzaharia.com"
+        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+            base_domain="${mapping%%:*}"
+            ZONE_ID="${mapping#*:}"
+            
+            if [ -n "$ZONE_ID" ]; then
+                target_domain="$app_id.$base_domain"
+                echo "Creating Cloudflare CNAME record for $target_domain..."
+                response=$(curl -s -w "\n%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    --data "{\"type\":\"CNAME\",\"name\":\"$target_domain\",\"content\":\"$firebase_project_id.web.app\",\"ttl\":1,\"proxied\":false}")
+                code=$(echo "$response" | tail -n 1)
+                body=$(echo "$response" | head -n -1)
+                if [ "$code" -ne 200 ] && [ "$code" -ne 201 ]; then
+                    echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Cloudflare CNAME record for $target_domain (HTTP $code)"
+                    echo "Details: $body"
+                else
+                    echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Cloudflare DNS record (DNS-only) for $target_domain"
+                fi
             fi
-        fi
-        if [ -n "$ADMA_ZONE_ID" ]; then
-            echo "Creating Cloudflare CNAME record for $app_id.adanmade.app..."
-            response_adma=$(curl -s -w "\n%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/$ADMA_ZONE_ID/dns_records" \
-                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                -H "Content-Type: application/json" \
-                --data "{\"type\":\"CNAME\",\"name\":\"$app_id.adanmade.app\",\"content\":\"$firebase_project_id.web.app\",\"ttl\":1,\"proxied\":false}")
-            code_adma=$(echo "$response_adma" | tail -n 1)
-            body_adma=$(echo "$response_adma" | head -n -1)
-            if [ "$code_adma" -ne 200 ] && [ "$code_adma" -ne 201 ]; then
-                echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Cloudflare CNAME record for $app_id.adanmade.app (HTTP $code_adma)"
-                echo "Details: $body_adma"
-            else
-                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Cloudflare DNS record (DNS-only) for $app_id.adanmade.app"
-            fi
-        fi
+        done
     fi
     
     # 7. Update status in registry

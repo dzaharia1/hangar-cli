@@ -25,18 +25,18 @@ clean_app_id() {
 }
 APP_ID=$(clean_app_id "$APP_ID")
 
-# Source deploy secrets
+# Source settings
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_SECRETS_FILE="$SCRIPT_DIR/.deploy-secrets"
-if [ -f "$DEPLOY_SECRETS_FILE" ]; then
-    source "$DEPLOY_SECRETS_FILE"
+SETTINGS_FILE="$SCRIPT_DIR/.settings"
+if [ -f "$SETTINGS_FILE" ]; then
+    source "$SETTINGS_FILE"
 else
-    echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot find deploy secrets at $DEPLOY_SECRETS_FILE"
+    echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot find settings at $SETTINGS_FILE"
     exit 1
 fi
 
-if [ -z "$LOCAL_PROJECTS_DIR" ]; then
-    echo -e "${BOLD_RED}FAILED${END_COLOR} LOCAL_PROJECTS_DIR is not set in .deploy-secrets"
+if [ -z "$LOCAL_PROJECTS_DIR" ] || [ ${#CLOUDFLARE_ZONES[@]} -eq 0 ]; then
+    echo -e "${BOLD_RED}FAILED${END_COLOR} LOCAL_PROJECTS_DIR or CLOUDFLARE_ZONES not set properly in .settings"
     exit 1
 fi
 
@@ -79,41 +79,28 @@ else
     echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot delete GCP project (you may need to delete it manually in the console)"
 fi
 
-# 3. Delete DNS CNAME records in Cloudflare for both domains
+# 3. Delete DNS CNAME records in Cloudflare for domains
 if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-    # Delete danzaharia.com record
-    if [ -n "$DZ_ZONE_ID" ]; then
-        target_domain="$APP_ID.danzaharia.com"
-        echo "Finding DNS record in Cloudflare for $target_domain..."
-        record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$DZ_ZONE_ID/dns_records?name=$target_domain" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
-        
-        if [ -n "$record_id" ] && [ "$record_id" != "null" ]; then
-            echo "Deleting Cloudflare DNS record..."
-            curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$DZ_ZONE_ID/dns_records/$record_id" \
+    for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+        base_domain="${mapping%%:*}"
+        ZONE_ID="${mapping#*:}"
+
+        if [ -n "$ZONE_ID" ]; then
+            target_domain="$APP_ID.$base_domain"
+            echo "Finding DNS record in Cloudflare for $target_domain..."
+            record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$target_domain" \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                -H "Content-Type: application/json" > /dev/null
-            echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Deleted CNAME record for $target_domain"
+                -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
+            
+            if [ -n "$record_id" ] && [ "$record_id" != "null" ]; then
+                echo "Deleting Cloudflare DNS record..."
+                curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$record_id" \
+                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                    -H "Content-Type: application/json" > /dev/null
+                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Deleted CNAME record for $target_domain"
+            fi
         fi
-    fi
-    
-    # Delete adanmade.app record
-    if [ -n "$ADMA_ZONE_ID" ]; then
-        target_domain="$APP_ID.adanmade.app"
-        echo "Finding DNS record in Cloudflare for $target_domain..."
-        record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ADMA_ZONE_ID/dns_records?name=$target_domain" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
-        
-        if [ -n "$record_id" ] && [ "$record_id" != "null" ]; then
-            echo "Deleting Cloudflare DNS record..."
-            curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ADMA_ZONE_ID/dns_records/$record_id" \
-                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                -H "Content-Type: application/json" > /dev/null
-            echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Deleted CNAME record for $target_domain"
-        fi
-    fi
+    done
 fi
 
 

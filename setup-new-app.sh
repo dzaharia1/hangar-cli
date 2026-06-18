@@ -33,19 +33,19 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-# Source deploy secrets
+# Source settings
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_SECRETS_FILE="$SCRIPT_DIR/.deploy-secrets"
-if [ -f "$DEPLOY_SECRETS_FILE" ]; then
-    source "$DEPLOY_SECRETS_FILE"
+SETTINGS_FILE="$SCRIPT_DIR/.settings"
+if [ -f "$SETTINGS_FILE" ]; then
+    source "$SETTINGS_FILE"
 else
-    echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot find deploy secrets at $DEPLOY_SECRETS_FILE"
-    echo "Copy .deploy-secrets.example to .deploy-secrets and fill in values."
+    echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot find settings at $SETTINGS_FILE"
+    echo "Copy .settings.example to .settings and fill in values."
     exit 1
 fi
 
-if [ -z "$LOCAL_PROJECTS_DIR" ] || [ -z "$BILLING_ACCOUNT_ID" ]; then
-    echo -e "${BOLD_RED}FAILED${END_COLOR} LOCAL_PROJECTS_DIR or BILLING_ACCOUNT_ID not set in .deploy-secrets"
+if [ -z "$LOCAL_PROJECTS_DIR" ] || [ -z "$BILLING_ACCOUNT_ID" ] || [ ${#CLOUDFLARE_ZONES[@]} -eq 0 ]; then
+    echo -e "${BOLD_RED}FAILED${END_COLOR} LOCAL_PROJECTS_DIR, BILLING_ACCOUNT_ID, or CLOUDFLARE_ZONES not set properly in .settings"
     exit 1
 fi
 
@@ -117,10 +117,24 @@ if [ -n "$URL_DOMAIN" ]; then
     if [[ "$URL_DOMAIN" == *.* ]]; then
         DOMAIN_NAME="$URL_DOMAIN"
     else
-        DOMAIN_NAME="$URL_DOMAIN.danzaharia.com, $URL_DOMAIN.adanmade.app"
+        DOMAIN_NAME=""
+        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+            base_domain="${mapping%%:*}"
+            if [ -n "$DOMAIN_NAME" ]; then
+                DOMAIN_NAME="$DOMAIN_NAME,"
+            fi
+            DOMAIN_NAME="$DOMAIN_NAME$URL_DOMAIN.$base_domain"
+        done
     fi
 else
-    DOMAIN_NAME="$APP_ID.danzaharia.com, $APP_ID.adanmade.app"
+    DOMAIN_NAME=""
+    for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+        base_domain="${mapping%%:*}"
+        if [ -n "$DOMAIN_NAME" ]; then
+            DOMAIN_NAME="$DOMAIN_NAME,"
+        fi
+        DOMAIN_NAME="$DOMAIN_NAME$APP_ID.$base_domain"
+    done
 fi
 
 # Split comma-separated DOMAIN_NAME into an array for easier looping later
@@ -461,11 +475,13 @@ for domain in "${DOMAINS_ARRAY[@]}"; do
     # Cloudflare CNAME record setup
     if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
         ZONE_ID=""
-        if [[ ( "$domain" == *.danzaharia.com || "$domain" == "danzaharia.com" ) && -n "$DZ_ZONE_ID" ]]; then
-            ZONE_ID="$DZ_ZONE_ID"
-        elif [[ ( "$domain" == *.adanmade.app || "$domain" == "adanmade.app" ) && -n "$ADMA_ZONE_ID" ]]; then
-            ZONE_ID="$ADMA_ZONE_ID"
-        fi
+        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+            base_domain="${mapping%%:*}"
+            if [[ "$domain" == *"$base_domain" ]]; then
+                ZONE_ID="${mapping#*:}"
+                break
+            fi
+        done
 
         if [ -n "$ZONE_ID" ]; then
             echo "Creating Cloudflare CNAME record pointing $domain to $FIREBASE_PROJECT_ID.web.app..."
