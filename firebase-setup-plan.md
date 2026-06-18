@@ -14,10 +14,10 @@ This document defines the requirements for a brand-new, interactive shell-based 
   - `jq` (for JSON file parsing)
 - **TUI (Terminal User Interface):** Interactive, arrow-key or text-prompt navigation allowing the user to select options without typing complex commands.
 - **Project Structure:**
-  - Sourced from a local `.deploy-secrets` containing:
+  - Sourced from a local `.settings` containing:
     - `LOCAL_PROJECTS_DIR` (e.g. `~/Projects`)
     - `BILLING_ACCOUNT_ID` (for automating Blaze plan upgrades)
-    - `CLOUDFLARE_ZONE_ID` (optional, for DNS automation)
+    - `CLOUDFLARE_ZONES` (optional, for DNS automation)
     - `CLOUDFLARE_API_TOKEN` (optional, for DNS automation)
   - Applications will be stored in `$LOCAL_PROJECTS_DIR/<app-id>/` consisting of two subfolders:
     - `frontend/` (Vite Frontend)

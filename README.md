@@ -1,5 +1,35 @@
 # Server Setup Scripts
 
+## Setup
+
+### 1. Configuration
+Copy the `.settings.example` template to `.settings` and populate it with your environment variables:
+
+```bash
+cp .settings.example .settings
+```
+
+Open `.settings` in your editor and configure:
+- `LOCAL_PROJECTS_DIR`: Path where your local projects are scaffolded.
+- `BILLING_ACCOUNT_ID`: Google Cloud/Firebase billing account ID.
+- `CLOUDFLARE_ZONES`: Bash array mapping your domains to their Cloudflare Zone IDs (e.g., `"domain:zone_id"`).
+- `CLOUDFLARE_API_TOKEN`: Cloudflare API token with DNS edit permissions.
+
+### 2. Shell Alias (Optional)
+To easily run the scripts from anywhere, you can add an alias to your shell profile (e.g., `~/.zshrc` or `~/.bashrc`):
+
+```bash
+alias host-manager="/absolute/path/to/server-setup-scripts/my-setup-scripts/host-manager.sh"
+```
+
+Then reload your shell:
+
+```bash
+source ~/.zshrc  # or source ~/.bashrc
+```
+
+---
+
 ## [host-manager.sh](https://github.com/fcc-lol/server-setup-scripts/blob/main/host-manager.sh)
 #### An interactive TUI for managing your server instances.
 This script provides a menu-driven interface to run the other setup, removal, and maintenance scripts on a remote server via SSH.

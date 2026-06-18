@@ -18,7 +18,7 @@ This project provides a centralized way to manage multiple web applications on a
 - **TUI Layer:** `host-manager.sh` provides an interactive terminal interface for local users to trigger actions on the remote server.
 - **Service Layer:** Individual scripts (`setup-new-*.sh`, `remove-*.sh`, `rebuild-*.sh`) handle the heavy lifting on the server.
 - **Data Layer:** `setup-log.json` files within each application directory store metadata (App ID, Domain, GitHub Repo).
-- **Security:** `.deploy-secrets` stores sensitive credentials for GitHub and SSH integration.
+- **Configuration:** `.settings` stores global configuration and settings for setup scripts.
 
 ## Key Workflows
 
@@ -96,4 +96,4 @@ The `setup-new-express-server.sh` script:
 - `setup-new-*.sh`: Provisioning scripts.
 - `rebuild-*.sh` / `restart-*.sh`: Maintenance scripts.
 - `remove-*.sh`: Decommissioning scripts.
-- `.deploy-secrets.example`: Template for required configuration.
+- `.settings.example`: Template for required configuration.

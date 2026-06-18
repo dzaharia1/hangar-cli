@@ -33,9 +33,9 @@ A collection of bash scripts for provisioning and managing web instances on a re
 
 ## Architecture
 
-**Deployment** uses GitHub as the primary remote. Users push to a private GitHub repo, which triggers a GitHub Actions workflow that pushes to the server via SSH. The server's `post-receive` hook then runs the build/restart steps. The setup scripts automatically create the GitHub repo, set deployment secrets, and include the workflow file.
+**Deployment** uses Firebase Hosting and Firebase Cloud Functions. Workflows are scaffolded so that push to GitHub triggers GitHub Actions deploying to Firebase.
 
-**Prerequisites:** The `gh` CLI must be installed and authenticated on the server. A `.deploy-secrets` file (see `.deploy-secrets.example`) must exist alongside the scripts containing `DEPLOY_HOST`, `DEPLOY_USER`, and `DEPLOY_SSH_KEY_PATH`.
+**Prerequisites:** The `gh` CLI, `gcloud` CLI, `firebase` CLI, and `jq` must be installed and authenticated locally. A `.settings` file (see `.settings.example`) must exist alongside the scripts containing `LOCAL_PROJECTS_DIR`, `BILLING_ACCOUNT_ID`, `CLOUDFLARE_ZONES`, and `CLOUDFLARE_API_TOKEN`.
 
 **Vite apps** are static sites built with `npm run build` and served by Apache directly from `dist/`. The `post-receive` hook runs `npm install && npm run build` automatically when code is pushed from GitHub Actions.
 
