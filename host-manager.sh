@@ -424,9 +424,9 @@ if [ "$#" -gt 0 ]; then
                 echo -e "${BOLD_CYAN}=== Registered Applications (Status: $STATUS_FILTER) ===${END_COLOR}"
                 echo ""
                 if [ "$STATUS_FILTER" = "all" ]; then
-                    jq -r '.[] | "\(.id) [\(.status)]\n  Name:   \(.name)\n  Domain: https://\(.domain)\n  Repo:   https://\(.github_repo)\n"' "$REGISTRY_FILE"
+                    jq -r '.[] | "\(.id) [\(.status)]\n  Name:   \(.name)\n  Domain: https://\(.domain)\n  Repo:   \(.github_repo | if type == "array" then map("https://" + .) | join(", ") else "https://" + . end)\n"' "$REGISTRY_FILE"
                 else
-                    jq -r --arg filter "$STATUS_FILTER" '.[] | select(.status == $filter) | "\(.id)\n  Name:   \(.name)\n  Domain: https://\(.domain)\n  Repo:   https://\(.github_repo)\n"' "$REGISTRY_FILE"
+                    jq -r --arg filter "$STATUS_FILTER" '.[] | select(.status == $filter) | "\(.id)\n  Name:   \(.name)\n  Domain: https://\(.domain)\n  Repo:   \(.github_repo | if type == "array" then map("https://" + .) | join(", ") else "https://" + . end)\n"' "$REGISTRY_FILE"
                 fi
             fi
             exit 0
@@ -590,7 +590,7 @@ show_details_and_actions() {
         local name=$(jq -r ".[] | select(.id == \"$app_id\") | .name" "$REGISTRY_FILE")
         local domain=$(jq -r ".[] | select(.id == \"$app_id\") | .domain" "$REGISTRY_FILE")
         local firebase_project_id=$(jq -r ".[] | select(.id == \"$app_id\") | .firebase_project_id" "$REGISTRY_FILE")
-        local gh_repo=$(jq -r ".[] | select(.id == \"$app_id\") | .github_repo" "$REGISTRY_FILE")
+        local gh_repo=$(jq -r ".[] | select(.id == \"$app_id\") | .github_repo | if type == \"array\" then map(\"https://\" + .) | join(\", \") else \"https://\" + . end" "$REGISTRY_FILE")
         local date=$(jq -r ".[] | select(.id == \"$app_id\") | .created_at" "$REGISTRY_FILE")
         
         echo -e "\033[H\033[J"
@@ -601,7 +601,7 @@ show_details_and_actions() {
             echo -e "Firebase Proj:  $firebase_project_id"
         fi
         echo -e "Domain:         https://$domain"
-        echo -e "GitHub Repo:    https://$gh_repo"
+        echo -e "GitHub Repo:    $gh_repo"
         echo -e "Created On:     $date"
         echo -e "Status:         $filter"
         echo " "
