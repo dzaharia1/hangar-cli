@@ -371,7 +371,7 @@ cat <<EOF > "$ROOT_DIR/backend/functions/package.json"
   "type": "module",
   "main": "index.js",
   "engines": {
-    "node": "24"
+    "node": ">=24"
   },
   "dependencies": {
     "firebase-admin": "^13.0.0",
