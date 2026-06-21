@@ -148,12 +148,12 @@ echo "Domains:             "
 for domain in "${DOMAINS_ARRAY[@]}"; do
     echo "                     https://$domain"
 done
-echo "Local Root:          $LOCAL_PROJECTS_DIR/$APP_ID"
+echo "Local Root:          $LOCAL_PROJECTS_DIR/$APP_NAME"
 echo "GitHub Repo:         github.com/$GITHUB_USER/$APP_ID"
 echo " "
 
 # Create Folder Structure
-ROOT_DIR="$LOCAL_PROJECTS_DIR/$APP_ID"
+ROOT_DIR="$LOCAL_PROJECTS_DIR/$APP_NAME"
 mkdir -p "$ROOT_DIR/frontend/src" "$ROOT_DIR/frontend/public" "$ROOT_DIR/backend/functions" "$ROOT_DIR/backend/public"
 
 # --- SCAFFOLD FRONTEND ---

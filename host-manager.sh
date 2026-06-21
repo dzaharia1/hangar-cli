@@ -654,7 +654,11 @@ restore_application() {
     echo -e "\nStarting restoration for $app_id..."
     
     # 1. Clone repository back
-    local app_dir="$LOCAL_PROJECTS_DIR/$app_id"
+    local app_dir="$LOCAL_PROJECTS_DIR/$app_name"
+    if [ -z "$app_name" ] || [ "$app_name" = "null" ]; then
+        app_dir="$LOCAL_PROJECTS_DIR/$app_id"
+    fi
+
     if [ -d "$app_dir" ]; then
         echo -e "${BOLD_RED}FAILED${END_COLOR} A folder already exists at $app_dir. Move or rename it first."
         press_enter_to_continue

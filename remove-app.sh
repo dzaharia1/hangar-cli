@@ -46,24 +46,29 @@ REGISTRY_FILE="$SCRIPT_DIR/apps-registry/apps-registry.json"
 # Check metadata in registry
 DOMAIN_NAME=""
 FIREBASE_PROJECT_ID=""
+LOCAL_APP_DIR=""
 if [ -f "$REGISTRY_FILE" ]; then
     DOMAIN_NAME=$(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | .domain" "$REGISTRY_FILE" | sed 's|https://||')
     FIREBASE_PROJECT_ID=$(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | .firebase_project_id" "$REGISTRY_FILE")
+    LOCAL_APP_DIR=$(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | .local_root" "$REGISTRY_FILE")
+fi
+
+if [ -z "$LOCAL_APP_DIR" ] || [ "$LOCAL_APP_DIR" = "null" ]; then
+    LOCAL_APP_DIR="$LOCAL_PROJECTS_DIR/$APP_ID"
 fi
 
 # Fallback to local .firebaserc if firebase_project_id is not in registry
 if [ -z "$FIREBASE_PROJECT_ID" ] || [ "$FIREBASE_PROJECT_ID" = "null" ]; then
-    if [ -f "$LOCAL_PROJECTS_DIR/$APP_ID/frontend/.firebaserc" ]; then
-        FIREBASE_PROJECT_ID=$(jq -r '.projects.default' "$LOCAL_PROJECTS_DIR/$APP_ID/frontend/.firebaserc")
-    elif [ -f "$LOCAL_PROJECTS_DIR/$APP_ID/backend/.firebaserc" ]; then
-        FIREBASE_PROJECT_ID=$(jq -r '.projects.default' "$LOCAL_PROJECTS_DIR/$APP_ID/backend/.firebaserc")
+    if [ -f "$LOCAL_APP_DIR/frontend/.firebaserc" ]; then
+        FIREBASE_PROJECT_ID=$(jq -r '.projects.default' "$LOCAL_APP_DIR/frontend/.firebaserc")
+    elif [ -f "$LOCAL_APP_DIR/backend/.firebaserc" ]; then
+        FIREBASE_PROJECT_ID=$(jq -r '.projects.default' "$LOCAL_APP_DIR/backend/.firebaserc")
     else
         FIREBASE_PROJECT_ID="$APP_ID"
     fi
 fi
 
 # 1. Delete local app folder
-LOCAL_APP_DIR="$LOCAL_PROJECTS_DIR/$APP_ID"
 if [ -d "$LOCAL_APP_DIR" ]; then
     rm -rf "$LOCAL_APP_DIR"
     echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Deleted local project folder at $LOCAL_APP_DIR"
