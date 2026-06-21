@@ -178,30 +178,30 @@ const Page = styled.div\`
   align-items: center;
   height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
-  color: #f8fafc;
+  background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+  color: var(--foreground);
 \`;
 
 const Card = styled.div\`
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--card-bg);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--card-border);
   padding: 3rem;
   border-radius: 24px;
   text-align: center;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 20px 40px var(--card-shadow);
 \`;
 
 const Title = styled.h1\`
   font-size: 3rem;
   margin-bottom: 0.5rem;
-  background: linear-gradient(90deg, #60a5fa, #a78bfa);
+  background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 \`;
 
 const Status = styled.p\`
-  color: #94a3b8;
+  color: var(--muted);
   font-size: 1.2rem;
 \`;
 
@@ -209,7 +209,7 @@ const ApiButton = styled.button\`
   margin-top: 1.5rem;
   padding: 0.75rem 1.5rem;
   border: none;
-  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  background: linear-gradient(90deg, var(--btn-start), var(--btn-end));
   color: white;
   font-weight: 600;
   border-radius: 8px;
@@ -247,7 +247,25 @@ EOF
 
 # index.css
 cat <<EOF > "$ROOT_DIR/frontend/src/index.css"
-body { margin: 0; padding: 0; }
+:root {
+  --bg-start: #1e1b4b;
+  --bg-end: #0f172a;
+  --foreground: #f8fafc;
+  --card-bg: rgba(255, 255, 255, 0.05);
+  --card-border: rgba(255, 255, 255, 0.1);
+  --card-shadow: rgba(0, 0, 0, 0.4);
+  --muted: #94a3b8;
+  --gradient-start: #60a5fa;
+  --gradient-end: #a78bfa;
+  --btn-start: #3b82f6;
+  --btn-end: #8b5cf6;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 EOF
 
 # main.jsx
