@@ -164,13 +164,33 @@ A single monorepo deployed entirely to Firebase:
 - **Backend:** an Express 5 app wrapped by `onRequest` and exported as the `api` function. Hosting rewrites `/api/**` to it; all other paths fall back to `index.html`.
 - **CI/CD:** pushing to `main` runs the GitHub Actions workflow, which builds the frontend and runs `firebase deploy` using the `FIREBASE_SERVICE_ACCOUNT_KEY` secret.
 
+### Local Development & Testing
+
+To run the application locally with hot-reloading:
+
+1. **Start the Backend Cloud Functions Emulator**:
+   In one terminal tab, navigate to the `backend/` directory and run:
+   ```bash
+   cd backend
+   npm run dev
+   ```
+   This starts the Firebase local emulator suite focusing only on the functions service.
+
+2. **Start the Frontend Vite Dev Server**:
+   In another terminal tab, navigate to the `frontend/` directory and run:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+   This runs the Vite dev server on `http://localhost:5173`. Since the scaffolded `vite.config.js` includes a proxy mapping, any requests to `/api/**` are automatically forwarded to the local Functions emulator.
+
+---
+
 Prettier config applied to scaffolded apps:
 
 ```json
 { "bracketSameLine": true, "trailingComma": "all", "singleQuote": true }
 ```
-
----
 
 ## Conventions
 

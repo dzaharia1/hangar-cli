@@ -316,7 +316,15 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  build: { outDir: 'dist' }
+  build: { outDir: 'dist' },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5001/$FIREBASE_PROJECT_ID/us-central1/api',
+        changeOrigin: true
+      }
+    }
+  }
 })
 EOF
 
@@ -329,7 +337,10 @@ cat <<EOF > "$ROOT_DIR/backend/package.json"
 {
   "name": "$APP_ID-backend",
   "private": true,
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "npx -y firebase-tools@latest emulators:start --only functions"
+  }
 }
 EOF
 
