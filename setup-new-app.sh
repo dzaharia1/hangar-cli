@@ -453,12 +453,17 @@ echo "Installing Node modules locally..."
 (cd "$ROOT_DIR/backend/functions" && npm install)
 
 # --- PROVISION FIREBASE ---
-echo "Creating Firebase project $FIREBASE_PROJECT_ID..."
-if npx firebase-tools projects:create "$FIREBASE_PROJECT_ID" --display-name "$APP_NAME"; then
-    echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Firebase Project"
+echo "Checking if Firebase project $FIREBASE_PROJECT_ID already exists..."
+if firebase projects:list --json 2>/dev/null | jq -e ".result[] | select(.projectId == \"$FIREBASE_PROJECT_ID\")" >/dev/null; then
+    echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Firebase project $FIREBASE_PROJECT_ID already exists. Reusing it."
 else
-    echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot create Firebase project. It might already exist."
-    exit 1
+    echo "Creating Firebase project $FIREBASE_PROJECT_ID..."
+    if npx firebase-tools projects:create "$FIREBASE_PROJECT_ID" --display-name "$APP_NAME"; then
+        echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Firebase Project"
+    else
+        echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot create Firebase project."
+        exit 1
+    fi
 fi
 
 echo "Linking Billing Account $BILLING_ACCOUNT_ID..."
