@@ -689,7 +689,7 @@ restore_application() {
     echo "Linking Billing Account $BILLING_ACCOUNT_ID..."
     gcloud billing projects link "$firebase_project_id" --billing-account="$BILLING_ACCOUNT_ID" >/dev/null
     
-    echo "Enabling required Google Cloud APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build)..."
+    echo "Enabling required Google Cloud APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build, Billing Budgets)..."
     gcloud services enable \
         firebase.googleapis.com \
         firebasehosting.googleapis.com \
@@ -698,12 +698,28 @@ restore_application() {
         artifactregistry.googleapis.com \
         cloudbuild.googleapis.com \
         cloudbilling.googleapis.com \
+        billingbudgets.googleapis.com \
         eventarc.googleapis.com \
         --project="$firebase_project_id" >/dev/null 2>&1
     
     # Wait for API activation to propagate globally
     echo "Waiting for API propagation..."
     sleep 10
+    
+    echo "Creating Billing Budget of \$10..."
+    if gcloud billing budgets create \
+        --billing-account="$BILLING_ACCOUNT_ID" \
+        --display-name="Budget for $firebase_project_id" \
+        --budget-amount="10" \
+        --filter-projects="projects/$firebase_project_id" \
+        --threshold-rule=percent=0.5 \
+        --threshold-rule=percent=0.9 \
+        --threshold-rule=percent=1.0 \
+        --project="$firebase_project_id" >/dev/null 2>&1; then
+        echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Billing Budget"
+    else
+        echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Billing Budget"
+    fi
     
     # Overwrite root configs for monorepo
     cat <<EOF > "$app_dir/.firebaserc"

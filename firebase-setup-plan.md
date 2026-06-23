@@ -60,6 +60,7 @@ When creating a new application, the user is prompted to enter a unique app name
 3. **Firebase Resource Provisioning:**
    - Create a single Firebase project for the app using `firebase projects:create`.
    - Link Google Cloud Billing using `gcloud billing projects link` to enable the Blaze plan.
+   - Create a billing budget of $10 for the project (with alert thresholds at 50%, 90%, and 100%).
    - Connect custom domain on Firebase Hosting.
 4. **Cloudflare DNS Configuration:**
    - CNAME record pointed from the custom domain to the Firebase Hosting target (`<project-id>.web.app`).

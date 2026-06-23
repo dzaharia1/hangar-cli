@@ -113,7 +113,7 @@ Add `-h` / `--help` to the script or any subcommand for usage details.
 
 Steps:
 1. Scaffold the monorepo under `$LOCAL_PROJECTS_DIR/<id>` (frontend, backend, root configs) and `npm install` both packages
-2. Create the Firebase project, link billing, enable required GCP APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build, Eventarc)
+2. Create the Firebase project, link billing, enable required GCP APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build, Billing Budgets, Eventarc), and configure a $10 billing budget cap.
 3. Register custom domains in Firebase Hosting and create Cloudflare **CNAME** records pointing at `<project>.web.app`
 4. Create a `firebase-deployer` service account, bind IAM roles, and generate a key
 5. `git init`, create a **private** GitHub repo, store the key as the `FIREBASE_SERVICE_ACCOUNT_KEY` secret, and write `.github/workflows/deploy.yml`

@@ -469,7 +469,7 @@ fi
 echo "Linking Billing Account $BILLING_ACCOUNT_ID..."
 gcloud billing projects link "$FIREBASE_PROJECT_ID" --billing-account="$BILLING_ACCOUNT_ID" >/dev/null
 
-echo "Enabling required Google Cloud APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build)..."
+echo "Enabling required Google Cloud APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build, Billing Budgets)..."
 gcloud services enable \
     firebase.googleapis.com \
     firebasehosting.googleapis.com \
@@ -478,12 +478,29 @@ gcloud services enable \
     artifactregistry.googleapis.com \
     cloudbuild.googleapis.com \
     cloudbilling.googleapis.com \
+    billingbudgets.googleapis.com \
     eventarc.googleapis.com \
     --project="$FIREBASE_PROJECT_ID" >/dev/null 2>&1
 
 # Wait for API activation to propagate globally
 echo "Waiting for API propagation..."
 sleep 10
+
+echo "Creating Billing Budget of \$10..."
+if gcloud billing budgets create \
+    --billing-account="$BILLING_ACCOUNT_ID" \
+    --display-name="Budget for $FIREBASE_PROJECT_ID" \
+    --budget-amount="10" \
+    --filter-projects="projects/$FIREBASE_PROJECT_ID" \
+    --threshold-rule=percent=0.5 \
+    --threshold-rule=percent=0.9 \
+    --threshold-rule=percent=1.0 \
+    --project="$FIREBASE_PROJECT_ID" >/dev/null 2>&1; then
+    echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Billing Budget"
+else
+    echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Billing Budget"
+fi
+
 
 # Register custom domains
 echo "Registering custom domains in Firebase Hosting..."
