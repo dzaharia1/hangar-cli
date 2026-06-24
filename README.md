@@ -1,200 +1,205 @@
-# Server Setup Scripts
+# Hangar CLI (`hangar-cli`)
 
-Bash scripts that provision and manage a fleet of **Firebase-hosted web apps**. Each app is created as a single monorepo — a Vite/React frontend on Firebase Hosting plus an Express backend on Firebase Cloud Functions — wired to a private GitHub repo that auto-deploys on push. A synchronized `apps-registry` tracks every app's metadata and lifecycle status.
+A command-line interface and terminal user interface (TUI) to provision, deploy, monitor, and decommission a fleet of **Firebase-hosted monorepo web applications** with **Cloudflare DNS integration** and automated **GitHub Actions CI/CD workflows**.
 
-These scripts can be driven directly from the terminal (interactive TUI or CLI subcommands) or by the **Hangar** macOS app, which shells out to them. Both read and write the same `apps-registry.json` and `.settings`, so the two stay in sync.
+Hangar CLI serves as the backbone runner for the **Hangar macOS application**, which shells out to these scripts. Both read and write the same git-synchronized `apps-registry.json` and `.settings` configuration, ensuring they stay perfectly in sync.
 
-> ℹ️ Earlier revisions of this repo deployed Vite/Express apps to a remote Apache/pm2 server. That model is gone — everything here now targets Firebase. The git history and the `fcc-lol/server-setup-scripts` upstream still reflect the old approach.
+---
+
+## Key Features
+
+- 🏗️ **Unified Scaffolding:** Generates a clean, modular monorepo containing a Vite + React 19 + styled-components frontend, and an Express 5 backend running on Firebase Cloud Functions (Node 24, ESM).
+- ☁️ **GCP/Firebase Auto-Provisioning:** Programmatically creates Firebase projects, links Google Cloud Billing, enables required APIs, registers custom domains, and sets up a defensive $10 monthly billing budget.
+- 🌐 **Cloudflare DNS Automation:** Automatically registers DNS CNAME records mapping your subdomains/custom domains to Firebase Hosting endpoints.
+- 🤖 **GitHub Integration & CI/CD:** Auto-creates private repositories on GitHub, sets up GitHub secrets with deployment service account keys, and configures GitHub Actions workflow files to trigger auto-deploys on `git push`.
+- 🔄 **Git-Backed Shared Registry:** Manages a centralized inventory (`apps-registry.json`) synchronized automatically through its own private GitHub repository, facilitating multi-machine setups.
+- 💻 **TUI & CLI Interactivity:** Run it as an interactive, arrow-key-driven terminal interface, or run scripts directly with CLI subcommands.
 
 ---
 
 ## Prerequisites
 
-Installed **and authenticated** in your shell:
+Ensure the following tools are installed and authenticated in your shell environment:
 
-- [`gh`](https://cli.github.com/) — GitHub CLI (`gh auth login`)
-- [`gcloud`](https://cloud.google.com/sdk) — Google Cloud SDK (`gcloud auth login`)
-- [`firebase`](https://firebase.google.com/docs/cli) — Firebase CLI (the scripts also call `npx firebase-tools`)
-- [`jq`](https://stedolan.github.io/jq/) — JSON processor
-- A Firebase / Google Cloud account with a **billing account** (apps are linked to the Blaze plan)
-- Your domains managed on **Cloudflare** (DNS records are created automatically)
+1. **GitHub CLI (`gh`)** — Used to manage repositories, secrets, and register the central registry.
+   ```bash
+   gh auth login
+   ```
+2. **Google Cloud SDK (`gcloud`)** — Used to manage projects, billing accounts, and enable APIs.
+   ```bash
+   gcloud auth login
+   ```
+3. **Firebase CLI (`firebase`)** — Used to create projects and manage hosting targets (also runs via `npx firebase-tools`).
+   ```bash
+   firebase login
+   ```
+4. **JSON Processor (`jq`)** — Used to query and modify project records.
+5. **Billing Account** — A Google Cloud billing account linked to your account (needed to upgrade apps to the Firebase Blaze plan).
+6. **Cloudflare Account** — Cloudflare zone permissions with Zone.DNS **Edit** credentials for automatic DNS updates.
 
 ---
 
-## Setup
+## Quick Start & Setup
 
-Run the host manager. On first run — when no `.settings` file exists — an interactive stepper walks you through configuration, authenticates `gh`, and bootstraps the `apps-registry`:
+Clone the repository and run the host manager script. On the very first run (when no local `.settings` file exists), an interactive setup wizard will run to walk you through configuration, authenticate tools, and bootstrap your centralized registry.
 
 ```bash
 ./host-manager.sh
 ```
 
-The stepper prompts for:
-1. **Local projects directory** — where app monorepos are scaffolded (default `~/Projects`)
-2. **Billing Account ID** — GCP/Firebase billing account used to enable Blaze
-3. **Cloudflare domains & Zone IDs** — one or more `domain:zone_id` mappings (at least one required)
-4. **Cloudflare API token** — needs Zone.DNS **Edit** permission
+### The Setup Stepper Wizard
+1. **Projects Directory:** The absolute local path where project directories are created (defaults to `~/Projects`).
+2. **Billing Account ID:** Your Google Cloud billing account ID used to link Firebase projects to the Blaze plan.
+3. **Cloudflare Domains & Zone Mappings:** One or more Apex domain mappings with their Cloudflare Zone IDs. New apps automatically receive subdomains across all zones.
+4. **Cloudflare API Token:** API token with `Zone.DNS` Edit permissions.
 
-It writes these to `.settings` (see [The `.settings` file](#the-settings-file)).
+The wizard writes the configurations directly to the `.settings` file.
 
-### Shell alias (optional)
+### Shell Alias (Recommended)
+Add this alias to your shell configuration (`~/.zshrc` or `~/.bashrc`) to run Hangar CLI from anywhere:
 
 ```bash
-alias host-manager="/absolute/path/to/server-setup-scripts/my-setup-scripts/host-manager.sh"
-source ~/.zshrc   # or ~/.bashrc
+alias hangar-cli="/absolute/path/to/hangar-cli/host-manager.sh"
 ```
 
 ---
 
-## The `.settings` file
+## Configuration Files
 
-A plain **bash** file `source`d by every script. It is git-ignored — copy [`.settings.example`](./.settings.example) to `.settings` and fill in real values (or let the first-run stepper generate it).
+### 1. The `.settings` File
+This is a git-ignored file containing key environment mappings. You can create it using the setup stepper or by copying `.settings.example` and filling in the values:
 
-| Key | Description |
-|---|---|
-| `LOCAL_PROJECTS_DIR` | Directory where app monorepos are scaffolded (e.g. `"$HOME/Projects"`) |
-| `BILLING_ACCOUNT_ID` | GCP/Firebase billing account ID linked to new projects |
-| `CLOUDFLARE_ZONES` | Bash array of `"domain:zone_id"` strings; new apps get a subdomain in **every** listed zone |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare token with Edit DNS permission |
+| Configuration Key | Description | Example |
+| :--- | :--- | :--- |
+| `LOCAL_PROJECTS_DIR` | The absolute path where applications are created | `"$HOME/Projects"` |
+| `BILLING_ACCOUNT_ID` | GCP/Firebase Billing Account ID | `012345-6789AB-CDEF01` |
+| `CLOUDFLARE_ZONES` | Bash array of `domain:zone_id` strings | `("domain.com:zoneid123")` |
+| `CLOUDFLARE_API_TOKEN`| Cloudflare API token with Zone.DNS Edit permissions | `your-cloudflare-token` |
 
----
+### 2. The Apps Registry
+`apps-registry/apps-registry.json` acts as the source of truth for the entire application fleet. The registry is backed by a private GitHub repository (`<github-user>/apps-registry`). 
 
-## The apps registry
+Hangar CLI clones the repository automatically on startup, runs `git pull` before performing operations, and commits/pushes updates when apps are created or archived.
 
-`apps-registry/apps-registry.json` is the **source of truth** for the fleet — an array of entries:
-
+Example registry entry:
 ```json
 {
-  "id": "martian-os",
-  "name": "Martian OS",
-  "domain": "martian-os.adanmade.app, martian-os.danzaharia.com",
-  "domains": ["martian-os.adanmade.app", "martian-os.danzaharia.com"],
-  "local_root": "/Users/dan/Projects/martian-os",
-  "firebase_project_id": "martian-os-f4b6d",
-  "github_repo": "github.com/dzaharia1/martian-os",
+  "id": "my-app",
+  "name": "My App",
+  "domain": "my-app.domain1.com, my-app.domain2.com",
+  "domains": ["my-app.domain1.com", "my-app.domain2.com"],
+  "local_root": "/Users/user/Projects/My App",
+  "firebase_project_id": "my-app-84729",
+  "github_repo": "github.com/github-user/my-app",
   "status": "active",
-  "created_at": "Wed Jun 17 16:14:14 EDT 2026"
+  "created_at": "Wed Jun 24 18:00:00 EDT 2026"
 }
 ```
 
-`status` is `active` or `removed`. The registry is itself a **private GitHub repo** (`<github-user>/apps-registry`): `host-manager.sh` clones or creates it on first run and `git pull`s it on every run, and the create/remove/restore flows commit and push changes. The local `apps-registry/` directory is git-ignored from this repo.
+---
+
+## CLI & Subcommands
+
+Run `./host-manager.sh [command] [options]`. For subcommand help, append `-h` or `--help` (e.g. `./host-manager.sh create-app --help`).
+
+### Commands Table
+
+| Subcommand | Flag Arguments | Description |
+| :--- | :--- | :--- |
+| **`create-app`** | `-n NAME` (Req), `-id ID`, `-urldomain DOM` | Scaffold, provision resources, and deploy a new app monorepo. |
+| **`remove-app`** | `-id ID` (Req) | Decommission, delete GCP project, and remove Cloudflare DNS records. |
+| **`restore-app`**| `-id ID` (Req) | Rebuild and deploy a decommissioned app using its GitHub source history. |
+| **`list-apps`**  | `--status active\|removed\|all`, `--json` | Lists registered applications in standard text or JSON format. |
 
 ---
 
-## Commands
+## Interactive TUI Mode
 
-`host-manager.sh` is the entry point. With **no arguments** it launches an interactive arrow-key TUI (create apps, browse active/archived apps with `Ctrl+R` to toggle, delete or restore). With a **subcommand** it runs non-interactively:
-
-| Command | Purpose |
-|---|---|
-| `create-app -n NAME [-id ID] [-urldomain DOM]` | Scaffold, provision, and deploy a new app (delegates to `setup-new-app.sh`) |
-| `remove-app -id ID` | Archive an active app (delegates to `remove-app.sh`) |
-| `restore-app -id ID` | Redeploy an archived app from its GitHub repo |
-| `list-apps [--status active\|removed\|all] [--json]` | List registered apps |
-
-Add `-h` / `--help` to the script or any subcommand for usage details.
+Running `./host-manager.sh` without arguments launches an interactive Terminal User Interface:
+- **Arrow Keys (Up/Down):** Navigate menus and lists.
+- **Enter:** Select an option, enter a menu, or view detailed metadata of an application.
+- **`Ctrl+R`:** Toggle between **Active Applications** and **Archived Applications** indexes.
+- **`D` (in Active details):** Trigger the decommissioning process for the selected app.
+- **`R` (in Archived details):** Trigger the redeployment / restoration process for the selected app.
+- **`Esc` / `q`:** Go back to the previous screen or exit the tool.
 
 ---
 
-## Lifecycle scripts
+## Scaffolded Monorepo Anatomy
 
-### `setup-new-app.sh` — provision a new app
-
-```bash
-./setup-new-app.sh -n "App Name" [-id app-id] [-urldomain dom] [-fid firebase-project-id]
-```
-
-| Flag | Meaning |
-|---|---|
-| `-n`, `--name` | App name (Title Case) |
-| `-id`, `--id` | App ID (defaults to the lowercase-hyphenated name) |
-| `-urldomain`, `--domain` | Custom domain(s). A value containing a `.` is used verbatim (comma-separated allowed); a bare word is used as the **subdomain prefix** across all Cloudflare zones |
-| `-fid`, `--firebase-id` | Firebase project ID (defaults to `<app-id>-<random5>`) |
-
-Steps:
-1. Scaffold the monorepo under `$LOCAL_PROJECTS_DIR/<id>` (frontend, backend, root configs) and `npm install` both packages
-2. Create the Firebase project, link billing, enable required GCP APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build, Billing Budgets, Eventarc), and configure a $10 billing budget cap.
-3. Register custom domains in Firebase Hosting and create Cloudflare **CNAME** records pointing at `<project>.web.app`
-4. Create a `firebase-deployer` service account, bind IAM roles, and generate a key
-5. `git init`, create a **private** GitHub repo, store the key as the `FIREBASE_SERVICE_ACCOUNT_KEY` secret, and write `.github/workflows/deploy.yml`
-6. Append the entry to `apps-registry.json` and push
-
-Default domains are `<id>.<each configured zone domain>` (e.g. `<id>.adanmade.app` and `<id>.danzaharia.com`).
-
-### `remove-app.sh` — archive an app
-
-```bash
-./remove-app.sh --app-id <id>
-```
-
-1. Delete the local project folder
-2. Delete the GCP/Firebase project
-3. Delete the Cloudflare CNAME records
-4. Flip the registry entry's `status` to `removed` and push
-
-The **GitHub repo is preserved** so the app can be restored later.
-
-### `restore-app` (via `host-manager.sh`) — redeploy an archived app
-
-```bash
-./host-manager.sh restore-app -id <id>
-```
-
-Clones the monorepo back from GitHub, recreates the Firebase project (new `<id>-<random5>` ID) with billing + APIs, regenerates the deployer service account and GitHub secret, re-registers Firebase custom domains and Cloudflare CNAMEs, rewrites `.firebaserc` / `deploy.yml` with the new project ID, flips the registry entry back to `active`, and pushes to trigger a fresh deploy. Fails if a folder already exists at the local path.
-
----
-
-## What a scaffolded app looks like
-
-A single monorepo deployed entirely to Firebase:
+All newly created applications follow a unified structure that bundles frontend and backend configurations into a single monorepo:
 
 ```
 <app-id>/
-  frontend/            # Vite + React 19 + styled-components → built to frontend/dist/
-    src/
-    public/
-  backend/
-    functions/         # Firebase Cloud Functions (Node 24, ESM): Express app exported as `api`
-  firebase.json        # Hosting serves frontend/dist; rewrites /api/** → the `api` function
-  .firebaserc          # default project = the Firebase project ID
-  .github/workflows/deploy.yml   # push to main → build frontend + deploy hosting & functions
+├── frontend/                     # React Single Page App
+│   ├── public/                   # Static assets (manifest.json, robots.txt)
+│   ├── src/                      # Source code (React 19 + styled-components)
+│   ├── package.json              # Vite build setup
+│   └── vite.config.js            # Frontend config with local API proxy mapping
+├── backend/                      # Firebase Cloud Functions runtime environment
+│   ├── functions/                # Express 5 App
+│   │   ├── index.js              # onRequest API endpoint definition
+│   │   └── package.json          # Server dependencies (Express, Firebase-Admin, CORS)
+│   └── package.json              # Parent script runner to launch functions emulator
+├── .firebaserc                   # Stores active Firebase Project mapping
+├── firebase.json                 # Maps hosting path, redirects `/api/**` -> Functions API
+└── .github/                      # GitHub Actions automated workflow configurations
+    └── workflows/
+        └── deploy.yml            # CI/CD deployment file triggered on pushes to main
 ```
 
-- **Frontend:** Vite 5, React 19, styled-components 6. `npm run build` emits `frontend/dist/`, served by Firebase Hosting.
-- **Backend:** an Express 5 app wrapped by `onRequest` and exported as the `api` function. Hosting rewrites `/api/**` to it; all other paths fall back to `index.html`.
-- **CI/CD:** pushing to `main` runs the GitHub Actions workflow, which builds the frontend and runs `firebase deploy` using the `FIREBASE_SERVICE_ACCOUNT_KEY` secret.
+- **Frontend:** Powered by React 19 and styled-components v6. Building output goes to `frontend/dist/` which is served by Firebase Hosting.
+- **Backend:** Express 5 app exported as `api` function wrapper (`firebase-functions/v2/https`).
+- **Rewrites:** Firebase Hosting redirects all `/api/**` requests directly to the functions runtime, while fallback routes serve `index.html`.
 
-### Local Development & Testing
+---
 
-To run the application locally with hot-reloading:
+## Local Development & Emulators
 
-1. **Start the Backend Cloud Functions Emulator**:
-   In one terminal tab, navigate to the `backend/` directory and run:
+Hangar CLI scaffolds configuration designed to run and hot-reload local services simultaneously using the Firebase Local Emulator Suite.
+
+1. **Start the Express API Emulator:**
+   Navigate to the `backend/` folder and run the function emulator:
    ```bash
    cd backend
    npm run dev
    ```
-   This starts the Firebase local emulator suite focusing only on the functions service.
+   This runs functions locally on `http://127.0.0.1:5001`.
 
-2. **Start the Frontend Vite Dev Server**:
-   In another terminal tab, navigate to the `frontend/` directory and run:
+2. **Start the Frontend Dev Server:**
+   In another terminal tab, navigate to the `frontend/` folder and run the Vite dev server:
    ```bash
    cd frontend
    npm run dev
    ```
-   This runs the Vite dev server on `http://localhost:5173`. Since the scaffolded `vite.config.js` includes a proxy mapping, any requests to `/api/**` are automatically forwarded to the local Functions emulator.
+   This launches the development UI at `http://localhost:5173`. Vite is configured with a development proxy wrapper to forward `/api/**` requests directly to the Functions Emulator on port 5001.
 
 ---
 
-Prettier config applied to scaffolded apps:
+## Detailed Operations Lifecycle
 
-```json
-{ "bracketSameLine": true, "trailingComma": "all", "singleQuote": true }
-```
+### Setup & Provisioning (`setup-new-app.sh`)
+1. Generates local directory structure under `LOCAL_PROJECTS_DIR` and installs node packages.
+2. Registers a new Google Cloud / Firebase project and links it to the configured `BILLING_ACCOUNT_ID` to activate the Blaze plan.
+3. Automatically sets a $10 monthly budget cap in Google Cloud billing budgets to prevent runaway costs.
+4. Registers custom domains via Firebase Hosting APIs and creates CNAME DNS records pointing to `<project>.web.app` in Cloudflare.
+5. Provisions a GCP service account (`firebase-deployer`), grants deployment IAM permissions, generates a credential key, and creates a private GitHub repository.
+6. Saves the key as the `FIREBASE_SERVICE_ACCOUNT_KEY` secret in the GitHub repository.
+7. Commits scaffolded code and pushes to `main` to trigger the initial GitHub Action deploy.
+8. Writes metadata back to the shared `apps-registry.json` database.
 
-## Conventions
+### Decommissioning (`remove-app.sh`)
+1. Deletes the local application folder from your disk.
+2. Programmatically deletes the Google Cloud / Firebase project (along with all its functions and hosted builds).
+3. Deletes DNS CNAME records associated with the app from Cloudflare zones.
+4. Updates the app status in `apps-registry.json` to `"removed"` and syncs it with GitHub.
+5. **Important:** The GitHub repository is **not** deleted, preserving source control history.
 
-- Every script accepts CLI flags and falls back to interactive `read` prompts.
-- App IDs are the lowercase-hyphenated form of the Title-Case name.
-- Steps print `SUCCESS` / `FAILED` / `WARNING` and generally **continue on failure** (non-fatal pattern), so a partial failure doesn't abort the whole run.
-- The registry is authoritative and kept in sync through its own private GitHub repo.
+### Restoration (`restore-app` in `host-manager.sh`)
+1. Clones the application repository back from GitHub into `LOCAL_PROJECTS_DIR`.
+2. Creates a fresh Firebase project (with a new unique random ID suffix) and links it to billing.
+3. Configures API services and recreates the GCP billing budget limits.
+4. Regenerates the `firebase-deployer` service account key, sets it on the GitHub repository secret, and updates the local `.firebaserc`.
+5. Re-registers custom domains on Firebase and rebuilds CNAME DNS configurations in Cloudflare.
+6. Commits configuration updates and pushes to trigger a deployment.
+7. Updates the entry status back to `"active"` in the registry and syncs it with GitHub.
