@@ -744,13 +744,12 @@ DOMAINS_JSON=$(printf '%s\n' "${DOMAINS_ARRAY[@]}" | jq -R . | jq -s .)
 NEW_ENTRY=$(jq -n \
   --arg id "$APP_ID" \
   --arg name "$APP_NAME" \
-  --arg domain "$DOMAIN_NAME" \
   --argjson domains "$DOMAINS_JSON" \
   --arg local_root "$ROOT_DIR" \
   --arg f_pid "$FIREBASE_PROJECT_ID" \
   --arg gh_repo "github.com/$GITHUB_USER/$APP_ID" \
   --arg date "$(date)" \
-  '{id: $id, name: $name, domain: $domain, domains: $domains, local_root: $local_root, firebase_project_id: $f_pid, github_repo: $gh_repo, status: "active", created_at: $date}')
+  '{id: $id, name: $name, domains: $domains, local_root: $local_root, firebase_project_id: $f_pid, github_repo: $gh_repo, status: "active", created_at: $date}')
 
 # Load registry, add entry, write back
 cd "$SCRIPT_DIR/apps-registry"

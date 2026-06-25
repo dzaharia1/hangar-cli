@@ -372,7 +372,7 @@ if [ "$#" -gt 0 ]; then
             # Find in registry
             if [ -f "$REGISTRY_FILE" ]; then
                 name=$(jq -r ".[] | select(.id == \"$APP_ID\") | .name" "$REGISTRY_FILE")
-                domain=$(jq -r ".[] | select(.id == \"$APP_ID\") | .domain" "$REGISTRY_FILE")
+                domain=$(jq -r ".[] | select(.id == \"$APP_ID\") | .domains | join(\", \")" "$REGISTRY_FILE")
                 status=$(jq -r ".[] | select(.id == \"$APP_ID\") | .status" "$REGISTRY_FILE")
                 
                 if [ -z "$name" ] || [ "$name" = "null" ]; then
@@ -424,9 +424,9 @@ if [ "$#" -gt 0 ]; then
                 echo -e "${BOLD_CYAN}=== Registered Applications (Status: $STATUS_FILTER) ===${END_COLOR}"
                 echo ""
                 if [ "$STATUS_FILTER" = "all" ]; then
-                    jq -r '.[] | "\(.id) [\(.status)]\n  Name:   \(.name)\n  Domain: https://\(.domain)\n  Repo:   \(.github_repo | if type == "array" then map("https://" + .) | join(", ") else "https://" + . end)\n"' "$REGISTRY_FILE"
+                    jq -r '.[] | "\(.id) [\(.status)]\n  Name:   \(.name)\n  Domain: https://\(.domains | join(", "))\n  Repo:   \(.github_repo | if type == "array" then map("https://" + .) | join(", ") else "https://" + . end)\n"' "$REGISTRY_FILE"
                 else
-                    jq -r --arg filter "$STATUS_FILTER" '.[] | select(.status == $filter) | "\(.id)\n  Name:   \(.name)\n  Domain: https://\(.domain)\n  Repo:   \(.github_repo | if type == "array" then map("https://" + .) | join(", ") else "https://" + . end)\n"' "$REGISTRY_FILE"
+                    jq -r --arg filter "$STATUS_FILTER" '.[] | select(.status == $filter) | "\(.id)\n  Name:   \(.name)\n  Domain: https://\(.domains | join(", "))\n  Repo:   \(.github_repo | if type == "array" then map("https://" + .) | join(", ") else "https://" + . end)\n"' "$REGISTRY_FILE"
                 fi
             fi
             exit 0
@@ -588,7 +588,7 @@ show_details_and_actions() {
     
     while true; do
         local name=$(jq -r ".[] | select(.id == \"$app_id\") | .name" "$REGISTRY_FILE")
-        local domain=$(jq -r ".[] | select(.id == \"$app_id\") | .domain" "$REGISTRY_FILE")
+        local domain=$(jq -r ".[] | select(.id == \"$app_id\") | .domains | join(\", \")" "$REGISTRY_FILE")
         local firebase_project_id=$(jq -r ".[] | select(.id == \"$app_id\") | .firebase_project_id" "$REGISTRY_FILE")
         local gh_repo=$(jq -r ".[] | select(.id == \"$app_id\") | .github_repo | if type == \"array\" then map(\"https://\" + .) | join(\", \") else \"https://\" + . end" "$REGISTRY_FILE")
         local date=$(jq -r ".[] | select(.id == \"$app_id\") | .created_at" "$REGISTRY_FILE")

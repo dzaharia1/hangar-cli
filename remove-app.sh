@@ -44,11 +44,9 @@ eval LOCAL_PROJECTS_DIR="$LOCAL_PROJECTS_DIR"
 REGISTRY_FILE="$SCRIPT_DIR/apps-registry/apps-registry.json"
 
 # Check metadata in registry
-DOMAIN_NAME=""
 FIREBASE_PROJECT_ID=""
 LOCAL_APP_DIR=""
 if [ -f "$REGISTRY_FILE" ]; then
-    DOMAIN_NAME=$(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | .domain" "$REGISTRY_FILE" | sed 's|https://||')
     FIREBASE_PROJECT_ID=$(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | .firebase_project_id" "$REGISTRY_FILE")
     LOCAL_APP_DIR=$(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | .local_root" "$REGISTRY_FILE")
 fi
