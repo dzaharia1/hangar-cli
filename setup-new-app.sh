@@ -659,8 +659,78 @@ jobs:
         run: npx firebase-tools deploy --project $FIREBASE_PROJECT_ID --force
 EOF
 
-git add .github/workflows/deploy.yml
-git commit -m "Add monorepo deploy action"
+# Create GitHub Actions workflow for PR previews
+cat <<EOF > .github/workflows/preview.yml
+name: Deploy PR Preview to Firebase Hosting
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  build_and_preview:
+    if: \${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build Frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Deploy to Firebase Hosting Preview
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: \${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: \${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          channelId: pr-\${{ github.event.pull_request.number }}
+          expires: 7d
+          projectId: $FIREBASE_PROJECT_ID
+EOF
+
+# Create GitHub Actions workflow to cleanup PR previews when closed/merged
+cat <<EOF > .github/workflows/preview-cleanup.yml
+name: Cleanup PR Preview on Firebase Hosting
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: \${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+
+      - name: Delete Preview Channel
+        run: npx firebase-tools hosting:channel:delete pr-\${{ github.event.pull_request.number }} --force --project $FIREBASE_PROJECT_ID
+EOF
+
+git add .github/workflows/deploy.yml .github/workflows/preview.yml .github/workflows/preview-cleanup.yml
+git commit -m "Add monorepo deploy, preview, and preview-cleanup actions"
 git push -u origin main >/dev/null 2>&1
 
 # Cleanup credentials key
