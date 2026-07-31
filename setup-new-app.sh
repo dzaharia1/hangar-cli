@@ -606,6 +606,7 @@ frontend/dist/
 frontend/node_modules/
 backend/functions/node_modules/
 firebase-key.json
+firebase-debug.log
 .DS_Store
 EOF
 
