@@ -156,6 +156,8 @@ show_general_help() {
     echo "  remove-app   Decommission and remove an active app (local folder, Firebase"
     echo "               project, Cloudflare DNS, and update registry)."
     echo "  restore-app  Redeploy and restore an archived application from GitHub."
+    echo "  add-domain   Attach additional custom domain(s) to an active app"
+    echo "               (Firebase Hosting, Cloudflare DNS, and update registry)."
     echo "  list-apps    List all registered applications and their metadata."
     echo ""
     echo -e "${BOLD}Help on Commands:${END_COLOR}"
@@ -207,6 +209,21 @@ if [ "$1" = "restore-app" ] && { [ "$2" = "-h" ] || [ "$2" = "--help" ]; }; then
     echo ""
     echo -e "${BOLD}Examples:${END_COLOR}"
     echo "  ./host-manager.sh restore-app -id \"my-app\""
+    exit 0
+fi
+
+if [ "$1" = "add-domain" ] && { [ "$2" = "-h" ] || [ "$2" = "--help" ]; }; then
+    echo -e "${BOLD}Usage:${END_COLOR}"
+    echo "  ./host-manager.sh add-domain [options]"
+    echo ""
+    echo -e "${BOLD}Options:${END_COLOR}"
+    echo "  -id, --id ID                App ID of an active application [Required]"
+    echo "  -domain, --domain DOM       Domain(s) to add, comma-separated, or a bare"
+    echo "                              prefix to expand across the default zones [Required]"
+    echo ""
+    echo -e "${BOLD}Examples:${END_COLOR}"
+    echo "  ./host-manager.sh add-domain -id \"my-app\" -domain \"blog.example.com\""
+    echo "  ./host-manager.sh add-domain -id \"my-app\" -domain \"blog\""
     exit 0
 fi
 
@@ -393,6 +410,41 @@ if [ "$#" -gt 0 ]; then
             fi
             ;;
             
+        add-domain)
+            APP_ID=""
+            NEW_DOMAIN=""
+            while [[ "$#" -gt 0 ]]; do
+                case $1 in
+                    -id|--id) APP_ID="$2"; shift ;;
+                    -domain|--domain) NEW_DOMAIN="$2"; shift ;;
+                    *) echo "Unknown parameter passed to add-domain: $1"; exit 1 ;;
+                esac
+                shift
+            done
+
+            if [ -z "$APP_ID" ]; then
+                echo -e "${BOLD_RED}ERROR:${END_COLOR} App ID is required. Use -id or --id."
+                exit 1
+            fi
+
+            if [ -z "$NEW_DOMAIN" ]; then
+                echo -e "${BOLD_RED}ERROR:${END_COLOR} Domain is required. Use -domain or --domain."
+                exit 1
+            fi
+
+            # Check if app exists in registry first
+            if [ -f "$REGISTRY_FILE" ]; then
+                EXISTS=$(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | .id" "$REGISTRY_FILE")
+                if [ -z "$EXISTS" ]; then
+                    echo -e "${BOLD_RED}ERROR:${END_COLOR} Active app with ID '$APP_ID' not found in registry."
+                    exit 1
+                fi
+            fi
+
+            ./add-domain.sh -id "$APP_ID" -domain "$NEW_DOMAIN"
+            exit $?
+            ;;
+
         list-apps)
             STATUS_FILTER="active"
             OUTPUT_JSON=false
@@ -623,13 +675,23 @@ show_details_and_actions() {
                 fi
             fi
         else
+            echo -e "  [A] Add a custom domain"
             echo -e "  [D] Delete / Remove application"
             echo -e "  [Esc] Go back to list"
             echo " "
-            
+
             read -rsn1 input
             if [[ "$input" == $'\x1b' ]] || [[ "$input" == "q" ]] || [[ "$input" == "Q" ]]; then
                 return
+            elif [[ "$input" == "a" ]] || [[ "$input" == "A" ]]; then
+                echo " "
+                read -p "Domain to add (full domain, or prefix for default zones): " NEW_DOMAIN
+                if [ -n "$NEW_DOMAIN" ]; then
+                    ./add-domain.sh -id "$app_id" -domain "$NEW_DOMAIN"
+                    # Refresh registry after the addition
+                    cd "$REGISTRY_DIR" && git pull >/dev/null 2>&1 && cd "$SCRIPT_DIR"
+                    read -p "Press Enter to continue..."
+                fi
             elif [[ "$input" == "d" ]] || [[ "$input" == "D" ]]; then
                 echo " "
                 read -p "Would you like to DELETE/REMOVE this application? (y/N): " CONFIRM
