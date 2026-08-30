@@ -151,14 +151,16 @@ show_general_help() {
     echo "  ./host-manager.sh [command] [options]"
     echo ""
     echo -e "${BOLD}Commands:${END_COLOR}"
-    echo "  create-app   Scaffold and deploy a new Vite/React app with custom domains,"
-    echo "               GitHub repo, and Firebase Hosting."
-    echo "  remove-app   Decommission and remove an active app (local folder, Firebase"
-    echo "               project, Cloudflare DNS, and update registry)."
-    echo "  restore-app  Redeploy and restore an archived application from GitHub."
-    echo "  add-domain   Attach additional custom domain(s) to an active app"
-    echo "               (Firebase Hosting, Cloudflare DNS, and update registry)."
-    echo "  list-apps    List all registered applications and their metadata."
+    echo "  create-app     Scaffold and deploy a new Vite/React app with custom domains,"
+    echo "                 GitHub repo, and Firebase Hosting."
+    echo "  remove-app     Decommission and remove an active app (local folder, Firebase"
+    echo "                 project, Cloudflare DNS, and update registry)."
+    echo "  restore-app    Redeploy and restore an archived application from GitHub."
+    echo "  add-domain     Attach additional custom domain(s) to an active app"
+    echo "                 (Firebase Hosting, Cloudflare DNS, and update registry)."
+    echo "  remove-domain  Detach custom domain(s) from an active app"
+    echo "                 (Firebase Hosting, Cloudflare DNS, and update registry)."
+    echo "  list-apps      List all registered applications and their metadata."
     echo ""
     echo -e "${BOLD}Help on Commands:${END_COLOR}"
     echo "  ./host-manager.sh [command] --help     Show usage details for a specific command."
@@ -224,6 +226,21 @@ if [ "$1" = "add-domain" ] && { [ "$2" = "-h" ] || [ "$2" = "--help" ]; }; then
     echo -e "${BOLD}Examples:${END_COLOR}"
     echo "  ./host-manager.sh add-domain -id \"my-app\" -domain \"blog.example.com\""
     echo "  ./host-manager.sh add-domain -id \"my-app\" -domain \"blog\""
+    exit 0
+fi
+
+if [ "$1" = "remove-domain" ] && { [ "$2" = "-h" ] || [ "$2" = "--help" ]; }; then
+    echo -e "${BOLD}Usage:${END_COLOR}"
+    echo "  ./host-manager.sh remove-domain [options]"
+    echo ""
+    echo -e "${BOLD}Options:${END_COLOR}"
+    echo "  -id, --id ID                App ID of an active application [Required]"
+    echo "  -domain, --domain DOM       Domain(s) to remove, comma-separated, or a bare"
+    echo "                              prefix to expand across the default zones [Required]"
+    echo ""
+    echo -e "${BOLD}Examples:${END_COLOR}"
+    echo "  ./host-manager.sh remove-domain -id \"my-app\" -domain \"blog.example.com\""
+    echo "  ./host-manager.sh remove-domain -id \"my-app\" -domain \"blog\""
     exit 0
 fi
 
@@ -442,6 +459,41 @@ if [ "$#" -gt 0 ]; then
             fi
 
             ./add-domain.sh -id "$APP_ID" -domain "$NEW_DOMAIN"
+            exit $?
+            ;;
+
+        remove-domain)
+            APP_ID=""
+            GONE_DOMAIN=""
+            while [[ "$#" -gt 0 ]]; do
+                case $1 in
+                    -id|--id) APP_ID="$2"; shift ;;
+                    -domain|--domain) GONE_DOMAIN="$2"; shift ;;
+                    *) echo "Unknown parameter passed to remove-domain: $1"; exit 1 ;;
+                esac
+                shift
+            done
+
+            if [ -z "$APP_ID" ]; then
+                echo -e "${BOLD_RED}ERROR:${END_COLOR} App ID is required. Use -id or --id."
+                exit 1
+            fi
+
+            if [ -z "$GONE_DOMAIN" ]; then
+                echo -e "${BOLD_RED}ERROR:${END_COLOR} Domain is required. Use -domain or --domain."
+                exit 1
+            fi
+
+            # Check if app exists in registry first
+            if [ -f "$REGISTRY_FILE" ]; then
+                EXISTS=$(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | .id" "$REGISTRY_FILE")
+                if [ -z "$EXISTS" ]; then
+                    echo -e "${BOLD_RED}ERROR:${END_COLOR} Active app with ID '$APP_ID' not found in registry."
+                    exit 1
+                fi
+            fi
+
+            ./remove-domain.sh -id "$APP_ID" -domain "$GONE_DOMAIN"
             exit $?
             ;;
 
@@ -676,6 +728,7 @@ show_details_and_actions() {
             fi
         else
             echo -e "  [A] Add a custom domain"
+            echo -e "  [R] Remove a custom domain"
             echo -e "  [D] Delete / Remove application"
             echo -e "  [Esc] Go back to list"
             echo " "
@@ -689,6 +742,15 @@ show_details_and_actions() {
                 if [ -n "$NEW_DOMAIN" ]; then
                     ./add-domain.sh -id "$app_id" -domain "$NEW_DOMAIN"
                     # Refresh registry after the addition
+                    cd "$REGISTRY_DIR" && git pull >/dev/null 2>&1 && cd "$SCRIPT_DIR"
+                    read -p "Press Enter to continue..."
+                fi
+            elif [[ "$input" == "r" ]] || [[ "$input" == "R" ]]; then
+                echo " "
+                read -p "Domain to remove (full domain, or prefix for default zones): " GONE_DOMAIN
+                if [ -n "$GONE_DOMAIN" ]; then
+                    ./remove-domain.sh -id "$app_id" -domain "$GONE_DOMAIN"
+                    # Refresh registry after the removal
                     cd "$REGISTRY_DIR" && git pull >/dev/null 2>&1 && cd "$SCRIPT_DIR"
                     read -p "Press Enter to continue..."
                 fi
