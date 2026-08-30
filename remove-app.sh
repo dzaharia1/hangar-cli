@@ -84,24 +84,55 @@ fi
 
 # 3. Delete DNS CNAME records in Cloudflare for domains
 if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+    # Clean up every domain the registry records for the app (legacy entries may
+    # only have a `domain` string), plus the default <app-id>.<zone> names as a
+    # safety net for records that predate domain tracking. Deduplicated.
+    APP_DOMAINS=()
+    if [ -f "$REGISTRY_FILE" ]; then
+        while IFS= read -r d; do
+            [ -n "$d" ] && APP_DOMAINS+=("$d")
+        done < <(jq -r ".[] | select(.id == \"$APP_ID\" and .status == \"active\") | (.domains // (if has(\"domain\") and (.domain | type == \"string\") then [.domain] else [] end)) | .[]" "$REGISTRY_FILE" 2>/dev/null)
+    fi
     for mapping in "${CLOUDFLARE_ZONES[@]}"; do
         base_domain="${mapping%%:*}"
-        ZONE_ID="${mapping#*:}"
+        APP_DOMAINS+=("$APP_ID.$base_domain")
+    done
 
-        if [ -n "$ZONE_ID" ]; then
-            target_domain="$APP_ID.$base_domain"
-            echo "Finding DNS record in Cloudflare for $target_domain..."
-            record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$target_domain" \
-                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
-            
-            if [ -n "$record_id" ] && [ "$record_id" != "null" ]; then
-                echo "Deleting Cloudflare DNS record..."
-                curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$record_id" \
-                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                    -H "Content-Type: application/json" > /dev/null
-                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Deleted CNAME record for $target_domain"
+    SEEN_DOMAINS=()
+    for target_domain in "${APP_DOMAINS[@]}"; do
+        skip=false
+        for seen in "${SEEN_DOMAINS[@]}"; do
+            if [ "$seen" = "$target_domain" ]; then skip=true; break; fi
+        done
+        if [ "$skip" = true ]; then continue; fi
+        SEEN_DOMAINS+=("$target_domain")
+
+        # Match the domain to its zone
+        ZONE_ID=""
+        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+            base_domain="${mapping%%:*}"
+            if [[ "$target_domain" == *"$base_domain" ]]; then
+                ZONE_ID="${mapping#*:}"
+                break
             fi
+        done
+
+        if [ -z "$ZONE_ID" ]; then
+            echo "Cloudflare cleanup skipped for $target_domain (unrecognized zone or zone ID not set)"
+            continue
+        fi
+
+        echo "Finding DNS record in Cloudflare for $target_domain..."
+        record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$target_domain" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
+
+        if [ -n "$record_id" ] && [ "$record_id" != "null" ]; then
+            echo "Deleting Cloudflare DNS record..."
+            curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$record_id" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json" > /dev/null
+            echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Deleted CNAME record for $target_domain"
         fi
     done
 fi
