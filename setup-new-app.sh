@@ -625,6 +625,7 @@ name: Build and Deploy to Firebase
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:

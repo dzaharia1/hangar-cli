@@ -259,6 +259,240 @@ if [ "$1" = "list-apps" ] && { [ "$2" = "-h" ] || [ "$2" = "--help" ]; }; then
     exit 0
 fi
 
+# Application restoration logic
+restore_application() {
+    local app_id=$1
+    local app_name=$2
+    local domain_name=$3
+    
+    echo -e "\nStarting restoration for $app_id..."
+    
+    # 1. Clone repository back
+    local app_dir="$LOCAL_PROJECTS_DIR/$app_name"
+    if [ -z "$app_name" ] || [ "$app_name" = "null" ]; then
+        app_dir="$LOCAL_PROJECTS_DIR/$app_id"
+    fi
+
+    if [ -d "$app_dir" ]; then
+        echo -e "${BOLD_RED}FAILED${END_COLOR} A folder already exists at $app_dir. Move or rename it first."
+        press_enter_to_continue
+        return 1
+    fi
+    
+    echo "Cloning monorepo from GitHub..."
+    if ! gh repo clone "$GITHUB_USER/$app_id" "$app_dir" >/dev/null 2>&1; then
+        echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot clone repository."
+        press_enter_to_continue
+        return 1
+    fi
+    
+    # 2. Recreate Firebase Project
+    local random_num=$(jot -r 1 10000 99999 2>/dev/null || shuf -i 10000-99999 -n 1 2>/dev/null || echo $((10000 + RANDOM % 90000)))
+    local firebase_project_id="$app_id-$random_num"
+    
+    echo "Creating Firebase project $firebase_project_id..."
+    if npx firebase-tools projects:create "$firebase_project_id" --display-name "$app_name"; then
+        echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Firebase Project"
+    else
+        echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot create Firebase project. It might already exist."
+        rm -rf "$app_dir"
+        press_enter_to_continue
+        return 1
+    fi
+    
+    echo "Linking Billing Account $BILLING_ACCOUNT_ID..."
+    gcloud billing projects link "$firebase_project_id" --billing-account="$BILLING_ACCOUNT_ID" >/dev/null
+    
+    echo "Enabling required Google Cloud APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build, Billing Budgets)..."
+    gcloud services enable \
+        firebase.googleapis.com \
+        firebasehosting.googleapis.com \
+        cloudfunctions.googleapis.com \
+        run.googleapis.com \
+        artifactregistry.googleapis.com \
+        cloudbuild.googleapis.com \
+        cloudbilling.googleapis.com \
+        billingbudgets.googleapis.com \
+        eventarc.googleapis.com \
+        --project="$firebase_project_id" >/dev/null 2>&1
+    
+    # Wait for API activation to propagate globally
+    echo "Waiting for API propagation..."
+    sleep 10
+    
+    echo "Creating Billing Budget of \$10..."
+    if gcloud billing budgets create \
+        --billing-account="$BILLING_ACCOUNT_ID" \
+        --display-name="Budget for $firebase_project_id" \
+        --budget-amount="10" \
+        --filter-projects="projects/$firebase_project_id" \
+        --threshold-rule=percent=0.5 \
+        --threshold-rule=percent=0.9 \
+        --threshold-rule=percent=1.0 \
+        --project="$firebase_project_id" >/dev/null 2>&1; then
+        echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Billing Budget"
+    else
+        echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Billing Budget"
+    fi
+    
+    # Overwrite root configs for monorepo
+    cat <<EOF > "$app_dir/.firebaserc"
+{
+  "projects": {
+    "default": "$firebase_project_id"
+  }
+}
+EOF
+    mkdir -p "$app_dir/.github/workflows"
+    cat <<EOF > "$app_dir/.github/workflows/deploy.yml"
+name: Build and Deploy to Firebase
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/functions/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build Frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Install Functions Dependencies
+        run: npm ci
+        working-directory: backend/functions
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: \${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+
+      - name: Deploy to Firebase
+        run: npx firebase-tools deploy --project $firebase_project_id --force
+EOF
+    
+    # 3. Recreate Service Account Key
+    echo "Configuring GCP service account and keys..."
+    gcloud iam service-accounts create firebase-deployer \
+        --description="Deployment Service Account" \
+        --display-name="Firebase Deployer" \
+        --project="$firebase_project_id" >/dev/null 2>&1
+        
+    echo "Configuring IAM policy bindings for Deployer Service Account..."
+    for i in {1..5}; do
+        if gcloud projects add-iam-policy-binding "$firebase_project_id" \
+            --member="serviceAccount:firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" \
+            --role="roles/editor" >/dev/null 2>&1 && \
+           gcloud projects add-iam-policy-binding "$firebase_project_id" \
+            --member="serviceAccount:firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" \
+            --role="roles/iam.serviceAccountUser" >/dev/null 2>&1 && \
+           gcloud projects add-iam-policy-binding "$firebase_project_id" \
+            --member="serviceAccount:firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" \
+            --role="roles/cloudfunctions.admin" >/dev/null 2>&1 && \
+           gcloud projects add-iam-policy-binding "$firebase_project_id" \
+            --member="serviceAccount:firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" \
+            --role="roles/run.admin" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+    done
+        
+    echo "Generating service account keys..."
+    for i in {1..5}; do
+        if gcloud iam service-accounts keys create "$app_dir/firebase-key.json" \
+            --iam-account="firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+    done
+    
+    # 4. Upload keys back to GitHub Secrets
+    echo "Updating secrets on GitHub repositories..."
+    gh secret set FIREBASE_SERVICE_ACCOUNT_KEY --repo "$GITHUB_USER/$app_id" < "$app_dir/firebase-key.json" >/dev/null 2>&1
+    rm -f "$app_dir/firebase-key.json"
+    
+    # 5. Connect domains on Firebase
+    echo "Linking custom domains in Firebase Hosting..."
+    ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
+    if [ -n "$ACCESS_TOKEN" ]; then
+        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+            base_domain="${mapping%%:*}"
+            target_domain="$app_id.$base_domain"
+            echo "Registering $target_domain..."
+            response=$(curl -s -w "\n%{http_code}" -X POST "https://firebasehosting.googleapis.com/v1beta1/projects/$firebase_project_id/sites/$firebase_project_id/customDomains?customDomainId=$target_domain" \
+                -H "Authorization: Bearer $ACCESS_TOKEN" \
+                -H "X-Goog-User-Project: $firebase_project_id" \
+                -H "Content-Type: application/json" \
+                -d "{}")
+            code=$(echo "$response" | tail -n 1)
+            body=$(echo "$response" | head -n -1)
+            if [ "$code" -ne 200 ] && [ "$code" -ne 201 ]; then
+                echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to register $target_domain (HTTP $code)"
+                echo "Details: $body"
+            else
+                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Registered $target_domain"
+            fi
+        done
+    fi
+    
+    # 6. Re-configure Cloudflare records for domains
+    if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
+            base_domain="${mapping%%:*}"
+            ZONE_ID="${mapping#*:}"
+            
+            if [ -n "$ZONE_ID" ]; then
+                target_domain="$app_id.$base_domain"
+                echo "Creating Cloudflare CNAME record for $target_domain..."
+                response=$(curl -s -w "\n%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    --data "{\"type\":\"CNAME\",\"name\":\"$target_domain\",\"content\":\"$firebase_project_id.web.app\",\"ttl\":1,\"proxied\":false}")
+                code=$(echo "$response" | tail -n 1)
+                body=$(echo "$response" | head -n -1)
+                if [ "$code" -ne 200 ] && [ "$code" -ne 201 ]; then
+                    echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Cloudflare CNAME record for $target_domain (HTTP $code)"
+                    echo "Details: $body"
+                else
+                    echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Cloudflare DNS record (DNS-only) for $target_domain"
+                fi
+            fi
+        done
+    fi
+    
+    # 7. Update status in registry
+    echo "Updating status in synchronized registry..."
+    cd "$REGISTRY_DIR"
+    jq --arg f_pid "$firebase_project_id" --arg app_id "$app_id" 'map(if .id == $app_id and .status == "removed" then .status = "active" | .firebase_project_id = $f_pid else . end)' apps-registry.json > apps-registry.tmp.json && mv apps-registry.tmp.json apps-registry.json
+    git add apps-registry.json
+    git commit -m "Restore app: $app_id"
+    git push >/dev/null 2>&1
+    cd "$SCRIPT_DIR"
+    
+    # 8. Trigger deployment push
+    echo "Triggering automated deployments on GitHub..."
+    (cd "$app_dir" && git add .firebaserc .github/workflows/deploy.yml && git commit -m "Update Firebase project ID for restore" && git push origin main) >/dev/null 2>&1
+    
+    echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} $app_id has been fully restored and is redeploying!"
+    press_enter_to_continue
+    return 0
+}
+
 # Source settings
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SETTINGS_FILE="$SCRIPT_DIR/.settings"
@@ -767,239 +1001,6 @@ show_details_and_actions() {
             fi
         fi
     done
-}
-
-# Application restoration logic
-restore_application() {
-    local app_id=$1
-    local app_name=$2
-    local domain_name=$3
-    
-    echo -e "\nStarting restoration for $app_id..."
-    
-    # 1. Clone repository back
-    local app_dir="$LOCAL_PROJECTS_DIR/$app_name"
-    if [ -z "$app_name" ] || [ "$app_name" = "null" ]; then
-        app_dir="$LOCAL_PROJECTS_DIR/$app_id"
-    fi
-
-    if [ -d "$app_dir" ]; then
-        echo -e "${BOLD_RED}FAILED${END_COLOR} A folder already exists at $app_dir. Move or rename it first."
-        press_enter_to_continue
-        return 1
-    fi
-    
-    echo "Cloning monorepo from GitHub..."
-    if ! gh repo clone "$GITHUB_USER/$app_id" "$app_dir" >/dev/null 2>&1; then
-        echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot clone repository."
-        press_enter_to_continue
-        return 1
-    fi
-    
-    # 2. Recreate Firebase Project
-    local random_num=$(jot -r 1 10000 99999 2>/dev/null || shuf -i 10000-99999 -n 1 2>/dev/null || echo $((10000 + RANDOM % 90000)))
-    local firebase_project_id="$app_id-$random_num"
-    
-    echo "Creating Firebase project $firebase_project_id..."
-    if npx firebase-tools projects:create "$firebase_project_id" --display-name "$app_name"; then
-        echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Firebase Project"
-    else
-        echo -e "${BOLD_RED}FAILED${END_COLOR} Cannot create Firebase project. It might already exist."
-        rm -rf "$app_dir"
-        press_enter_to_continue
-        return 1
-    fi
-    
-    echo "Linking Billing Account $BILLING_ACCOUNT_ID..."
-    gcloud billing projects link "$firebase_project_id" --billing-account="$BILLING_ACCOUNT_ID" >/dev/null
-    
-    echo "Enabling required Google Cloud APIs (Firebase, Hosting, Cloud Functions, Cloud Run, Artifact Registry, Cloud Build, Billing Budgets)..."
-    gcloud services enable \
-        firebase.googleapis.com \
-        firebasehosting.googleapis.com \
-        cloudfunctions.googleapis.com \
-        run.googleapis.com \
-        artifactregistry.googleapis.com \
-        cloudbuild.googleapis.com \
-        cloudbilling.googleapis.com \
-        billingbudgets.googleapis.com \
-        eventarc.googleapis.com \
-        --project="$firebase_project_id" >/dev/null 2>&1
-    
-    # Wait for API activation to propagate globally
-    echo "Waiting for API propagation..."
-    sleep 10
-    
-    echo "Creating Billing Budget of \$10..."
-    if gcloud billing budgets create \
-        --billing-account="$BILLING_ACCOUNT_ID" \
-        --display-name="Budget for $firebase_project_id" \
-        --budget-amount="10" \
-        --filter-projects="projects/$firebase_project_id" \
-        --threshold-rule=percent=0.5 \
-        --threshold-rule=percent=0.9 \
-        --threshold-rule=percent=1.0 \
-        --project="$firebase_project_id" >/dev/null 2>&1; then
-        echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Billing Budget"
-    else
-        echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Billing Budget"
-    fi
-    
-    # Overwrite root configs for monorepo
-    cat <<EOF > "$app_dir/.firebaserc"
-{
-  "projects": {
-    "default": "$firebase_project_id"
-  }
-}
-EOF
-    mkdir -p "$app_dir/.github/workflows"
-    cat <<EOF > "$app_dir/.github/workflows/deploy.yml"
-name: Build and Deploy to Firebase
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: 'npm'
-          cache-dependency-path: |
-            frontend/package-lock.json
-            backend/functions/package-lock.json
-
-      - name: Install Frontend Dependencies
-        run: npm ci
-        working-directory: frontend
-
-      - name: Build Frontend
-        run: npm run build
-        working-directory: frontend
-
-      - name: Install Functions Dependencies
-        run: npm ci
-        working-directory: backend/functions
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: \${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
-
-      - name: Deploy to Firebase
-        run: npx firebase-tools deploy --project $firebase_project_id --force
-EOF
-    
-    # 3. Recreate Service Account Key
-    echo "Configuring GCP service account and keys..."
-    gcloud iam service-accounts create firebase-deployer \
-        --description="Deployment Service Account" \
-        --display-name="Firebase Deployer" \
-        --project="$firebase_project_id" >/dev/null 2>&1
-        
-    echo "Configuring IAM policy bindings for Deployer Service Account..."
-    for i in {1..5}; do
-        if gcloud projects add-iam-policy-binding "$firebase_project_id" \
-            --member="serviceAccount:firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" \
-            --role="roles/editor" >/dev/null 2>&1 && \
-           gcloud projects add-iam-policy-binding "$firebase_project_id" \
-            --member="serviceAccount:firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" \
-            --role="roles/iam.serviceAccountUser" >/dev/null 2>&1 && \
-           gcloud projects add-iam-policy-binding "$firebase_project_id" \
-            --member="serviceAccount:firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" \
-            --role="roles/cloudfunctions.admin" >/dev/null 2>&1 && \
-           gcloud projects add-iam-policy-binding "$firebase_project_id" \
-            --member="serviceAccount:firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" \
-            --role="roles/run.admin" >/dev/null 2>&1; then
-            break
-        fi
-        sleep 2
-    done
-        
-    echo "Generating service account keys..."
-    for i in {1..5}; do
-        if gcloud iam service-accounts keys create "$app_dir/firebase-key.json" \
-            --iam-account="firebase-deployer@$firebase_project_id.iam.gserviceaccount.com" >/dev/null 2>&1; then
-            break
-        fi
-        sleep 2
-    done
-    
-    # 4. Upload keys back to GitHub Secrets
-    echo "Updating secrets on GitHub repositories..."
-    gh secret set FIREBASE_SERVICE_ACCOUNT_KEY --repo "$GITHUB_USER/$app_id" < "$app_dir/firebase-key.json" >/dev/null 2>&1
-    rm -f "$app_dir/firebase-key.json"
-    
-    # 5. Connect domains on Firebase
-    echo "Linking custom domains in Firebase Hosting..."
-    ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
-    if [ -n "$ACCESS_TOKEN" ]; then
-        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
-            base_domain="${mapping%%:*}"
-            target_domain="$app_id.$base_domain"
-            echo "Registering $target_domain..."
-            response=$(curl -s -w "\n%{http_code}" -X POST "https://firebasehosting.googleapis.com/v1beta1/projects/$firebase_project_id/sites/$firebase_project_id/customDomains?customDomainId=$target_domain" \
-                -H "Authorization: Bearer $ACCESS_TOKEN" \
-                -H "X-Goog-User-Project: $firebase_project_id" \
-                -H "Content-Type: application/json" \
-                -d "{}")
-            code=$(echo "$response" | tail -n 1)
-            body=$(echo "$response" | head -n -1)
-            if [ "$code" -ne 200 ] && [ "$code" -ne 201 ]; then
-                echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to register $target_domain (HTTP $code)"
-                echo "Details: $body"
-            else
-                echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Registered $target_domain"
-            fi
-        done
-    fi
-    
-    # 6. Re-configure Cloudflare records for domains
-    if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-        for mapping in "${CLOUDFLARE_ZONES[@]}"; do
-            base_domain="${mapping%%:*}"
-            ZONE_ID="${mapping#*:}"
-            
-            if [ -n "$ZONE_ID" ]; then
-                target_domain="$app_id.$base_domain"
-                echo "Creating Cloudflare CNAME record for $target_domain..."
-                response=$(curl -s -w "\n%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
-                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                    -H "Content-Type: application/json" \
-                    --data "{\"type\":\"CNAME\",\"name\":\"$target_domain\",\"content\":\"$firebase_project_id.web.app\",\"ttl\":1,\"proxied\":false}")
-                code=$(echo "$response" | tail -n 1)
-                body=$(echo "$response" | head -n -1)
-                if [ "$code" -ne 200 ] && [ "$code" -ne 201 ]; then
-                    echo -e "${BOLD_RED}WARNING:${END_COLOR} Failed to create Cloudflare CNAME record for $target_domain (HTTP $code)"
-                    echo "Details: $body"
-                else
-                    echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} Created Cloudflare DNS record (DNS-only) for $target_domain"
-                fi
-            fi
-        done
-    fi
-    
-    # 7. Update status in registry
-    echo "Updating status in synchronized registry..."
-    cd "$REGISTRY_DIR"
-    jq --arg f_pid "$firebase_project_id" --arg app_id "$app_id" 'map(if .id == $app_id and .status == "removed" then .status = "active" | .firebase_project_id = $f_pid else . end)' apps-registry.json > apps-registry.tmp.json && mv apps-registry.tmp.json apps-registry.json
-    git add apps-registry.json
-    git commit -m "Restore app: $app_id"
-    git push >/dev/null 2>&1
-    cd "$SCRIPT_DIR"
-    
-    # 8. Trigger deployment push
-    echo "Triggering automated deployments on GitHub..."
-    (cd "$app_dir" && git add .firebaserc .github/workflows/deploy.yml && git commit -m "Update Firebase project ID for restore" && git push origin main) >/dev/null 2>&1
-    
-    echo -e "${BOLD_GREEN}SUCCESS${END_COLOR} $app_id has been fully restored and is redeploying!"
-    press_enter_to_continue
-    return 0
 }
 
 # --- Main Program Loop ---
